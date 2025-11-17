@@ -60,8 +60,12 @@ class VSBBM_Ticket_Manager {
             used_at TIMESTAMP NULL,
             PRIMARY KEY (id),
             KEY order_id (order_id),
+            KEY order_status (order_id, status),
             KEY ticket_number (ticket_number),
-            KEY status (status)
+            KEY status (status),
+            KEY status_created (status, created_at),
+            KEY created_at (created_at),
+            KEY used_at (used_at)
         ) $charset_collate;";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';

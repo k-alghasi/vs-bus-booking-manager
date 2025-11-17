@@ -725,56 +725,68 @@ class VSBBM_Seat_Manager {
     }
     
     /**
-     * بررسی وضعیت محصول
+     * بررسی وضعیت محصول (با کش)
      */
     public static function get_product_availability_status($product_id) {
+        $cache_key = 'vsbbm_product_status_' . $product_id;
+        $cached = get_transient($cache_key);
+
+        if ($cached !== false) {
+            return $cached;
+        }
+
         $start_date = get_post_meta($product_id, '_vsbbm_sale_start_date', true);
         $end_date = get_post_meta($product_id, '_vsbbm_sale_end_date', true);
         $current_time = current_time('Y-m-d\TH:i');
-        
+
+        $status = array();
+
         // اگر هیچ تاریخی تنظیم نشده
         if (empty($start_date) && empty($end_date)) {
-            return array(
+            $status = array(
                 'class' => 'always-active',
                 'text' => 'همیشه فعال',
                 'description' => 'این محصول در هر زمانی قابل خریداری است'
             );
         }
-        
         // اگر هنوز شروع نشده
-        if (!empty($start_date) && $current_time < $start_date) {
+        elseif (!empty($start_date) && $current_time < $start_date) {
             $time_left = human_time_diff(strtotime($current_time), strtotime($start_date));
-            return array(
+            $status = array(
                 'class' => 'not-started',
                 'text' => 'شروع نشده',
                 'description' => 'فروش ' . $time_left . ' دیگر شروع می‌شود'
             );
         }
-        
         // اگر منقضی شده
-        if (!empty($end_date) && $current_time > $end_date) {
-            return array(
+        elseif (!empty($end_date) && $current_time > $end_date) {
+            $status = array(
                 'class' => 'expired',
                 'text' => 'منقضی شده',
                 'description' => 'زمان فروش این محصول به پایان رسیده است'
             );
         }
-        
         // اگر فعال است
-        if (!empty($end_date)) {
+        elseif (!empty($end_date)) {
             $time_left = human_time_diff(strtotime($current_time), strtotime($end_date));
-            return array(
+            $status = array(
                 'class' => 'active',
                 'text' => 'فعال',
                 'description' => $time_left . ' تا پایان فروش باقی مانده'
             );
         }
-        
-        return array(
-            'class' => 'active',
-            'text' => 'فعال',
-            'description' => 'این محصول قابل خریداری است'
-        );
+        else {
+            $status = array(
+                'class' => 'active',
+                'text' => 'فعال',
+                'description' => 'این محصول قابل خریداری است'
+            );
+        }
+
+        // کش برای ۱۰ دقیقه
+        set_transient($cache_key, $status, 600);
+
+        return $status;
     }
     
     /**
@@ -924,6 +936,13 @@ class VSBBM_Seat_Manager {
  * افزودن صندلی‌های انتخاب شده به سبد خرید از طریق AJAX
  */
 public static function add_to_cart_ajax() {
+    // فعال‌سازی فشرده‌سازی خروجی
+    if (!headers_sent()) {
+        if (isset($_SERVER['HTTP_ACCEPT_ENCODING']) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== false) {
+            ob_start('ob_gzhandler');
+        }
+    }
+
     // Debug log
     error_log('🔵 VSBBM AJAX: add_to_cart_ajax called');
     error_log('🔵 POST data: ' . print_r($_POST, true));
@@ -1050,15 +1069,33 @@ public static function add_to_cart_ajax() {
 
 
 /**
- * دریافت فیلدهای مسافر از طریق AJAX
+ * دریافت فیلدهای مسافر از طریق AJAX (با کش)
  */
 public static function get_passenger_fields_ajax() {
+    // فعال‌سازی فشرده‌سازی خروجی
+    if (!headers_sent()) {
+        if (isset($_SERVER['HTTP_ACCEPT_ENCODING']) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== false) {
+            ob_start('ob_gzhandler');
+        }
+    }
+
+    $cache_key = 'vsbbm_passenger_fields';
+    $cached = get_transient($cache_key);
+
+    if ($cached !== false) {
+        wp_send_json_success($cached);
+        return;
+    }
+
     $fields = get_option('vsbbm_passenger_fields', array(
         array('type' => 'text', 'label' => 'نام کامل', 'required' => true, 'placeholder' => 'نام و نام خانوادگی', 'locked' => false),
         array('type' => 'text', 'label' => 'کد ملی', 'required' => true, 'placeholder' => 'کد ملی ۱۰ رقمی', 'locked' => true),
         array('type' => 'tel', 'label' => 'شماره تماس', 'required' => true, 'placeholder' => '09xxxxxxxxx', 'locked' => false),
     ));
-    
+
+    // کش برای ۱ ساعت
+    set_transient($cache_key, $fields, 3600);
+
     wp_send_json_success($fields);
 }
 

@@ -3,7 +3,7 @@
  * Plugin Name: vsBus Booking Manager
  * Plugin URI:  https://vernasoft.ir
  * Description: سیستم رزرواسیون صندلی اتوبوس با انتخاب گرافیکی و لیست سیاه
- * Version:     1.9.0
+ * Version:     1.9.1
  * Author:      VernaSoft (Kazem Alghasi)
  * Author URI:  https://vernasoft.ir
  * Text Domain: vs-bus-booking-manager
@@ -14,7 +14,7 @@
 defined('ABSPATH') || exit;
 
 // تعریف ثابت‌های پلاگین
-define('VSBBM_VERSION', '1.9.0');
+define('VSBBM_VERSION', '1.9.1');
 define('VSBBM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('VSBBM_PLUGIN_PATH', plugin_dir_path(__FILE__));
 

@@ -59,15 +59,27 @@ class VSBBM_Seat_Reservations {
             PRIMARY KEY (id),
             UNIQUE KEY unique_reservation (product_id, seat_number, order_id),
             KEY product_seat (product_id, seat_number),
+            KEY product_status (product_id, status),
             KEY order_id (order_id),
+            KEY user_id (user_id),
             KEY status (status),
-            KEY expires_at (expires_at)
+            KEY status_expires (status, expires_at),
+            KEY expires_at (expires_at),
+            KEY reserved_at (reserved_at)
         ) $charset_collate;";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
 
         error_log('VSBBM: Seat reservations table created');
+    }
+
+    /**
+     * پاک کردن کش رزروها برای محصول
+     */
+    private static function clear_reservation_cache($product_id) {
+        $cache_key = 'vsbbm_reserved_seats_' . $product_id;
+        delete_transient($cache_key);
     }
 
     /**
@@ -107,6 +119,9 @@ class VSBBM_Seat_Reservations {
             }
         }
 
+        // پاک کردن کش بعد از رزرو موفق
+        self::clear_reservation_cache($product_id);
+
         error_log('VSBBM: Seats reserved: ' . implode(', ', $reserved_seats) . ' for order: ' . $order_id);
         return $reserved_seats;
     }
@@ -126,6 +141,16 @@ class VSBBM_Seat_Reservations {
         );
 
         if ($result) {
+            // پاک کردن کش برای محصول مرتبط
+            $product_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT DISTINCT product_id FROM $table_name WHERE order_id = %d",
+                $order_id
+            ));
+
+            foreach ($product_ids as $product_id) {
+                self::clear_reservation_cache($product_id);
+            }
+
             error_log('VSBBM: Reservation confirmed for order: ' . $order_id);
         }
 
@@ -147,6 +172,16 @@ class VSBBM_Seat_Reservations {
         );
 
         if ($result) {
+            // پاک کردن کش برای محصول مرتبط
+            $product_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT DISTINCT product_id FROM $table_name WHERE order_id = %d",
+                $order_id
+            ));
+
+            foreach ($product_ids as $product_id) {
+                self::clear_reservation_cache($product_id);
+            }
+
             error_log('VSBBM: Reservation cancelled for order: ' . $order_id);
         }
 
@@ -191,11 +226,17 @@ class VSBBM_Seat_Reservations {
     }
 
     /**
-     * دریافت صندلی‌های رزرو شده برای محصول
+     * دریافت صندلی‌های رزرو شده برای محصول (با کش)
      */
     public static function get_reserved_seats($product_id) {
-        global $wpdb;
+        $cache_key = 'vsbbm_reserved_seats_' . $product_id;
+        $cached = get_transient($cache_key);
 
+        if ($cached !== false) {
+            return $cached;
+        }
+
+        global $wpdb;
         $table_name = $wpdb->prefix . self::$table_name;
 
         $reserved_seats = $wpdb->get_col($wpdb->prepare(
@@ -205,7 +246,12 @@ class VSBBM_Seat_Reservations {
             $product_id
         ));
 
-        return array_map('intval', $reserved_seats);
+        $reserved_seats = array_map('intval', $reserved_seats);
+
+        // کش برای ۵ دقیقه
+        set_transient($cache_key, $reserved_seats, 300);
+
+        return $reserved_seats;
     }
 
     /**

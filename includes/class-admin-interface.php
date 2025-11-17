@@ -680,10 +680,10 @@ $(document).on('click', '.remove-field', function() {
     if (!is_array($input)) {
         return $input;
     }
-    
+
     $sanitized = array();
     $has_national_code = false;
-    
+
     foreach ($input as $index => $field) {
         $sanitized_field = array(
             'label' => sanitize_text_field($field['label'] ?? ''),
@@ -693,16 +693,16 @@ $(document).on('click', '.remove-field', function() {
             'locked' => ($field['label'] === 'کد ملی') ? true : false, // فقط کد ملی قفل شود
             'options' => isset($field['options']) ? sanitize_text_field($field['options']) : ''
         );
-        
+
         // بررسی فیلد کد ملی
         if ($sanitized_field['label'] === 'کد ملی') {
             $has_national_code = true;
             $sanitized_field['required'] = true; // کد ملی همیشه اجباری
         }
-        
+
         $sanitized[] = $sanitized_field;
     }
-    
+
     // اگر فیلد کد ملی وجود نداشت، اضافهش کن
     if (!$has_national_code) {
         array_unshift($sanitized, array(
@@ -714,7 +714,10 @@ $(document).on('click', '.remove-field', function() {
             'options' => ''
         ));
     }
-    
+
+    // پاک کردن کش فیلدهای مسافر
+    delete_transient('vsbbm_passenger_fields');
+
     return $sanitized;
 }
     
@@ -822,52 +825,90 @@ $(document).on('click', '.remove-field', function() {
     }
 
     private function get_all_bookings($filters = array()) {
-        // استفاده از WooCommerce functions به جای query مستقیم
-        $args = array(
-            'limit' => -1, // همه سفارش‌ها
-            'orderby' => 'date',
-            'order' => 'DESC',
-            'return' => 'objects'
-        );
-        
-        // اضافه کردن فیلترها
+        global $wpdb;
+
+        // استفاده از query بهینه‌تر برای عملکرد بهتر
+        $where_parts = array();
+        $where_values = array();
+
+        // فیلتر وضعیت
         if (!empty($filters['status'])) {
-            $args['status'] = $filters['status'];
+            $status = str_replace('wc-', '', $filters['status']);
+            $where_parts[] = "p.post_status = %s";
+            $where_values[] = 'wc-' . $status;
+        } else {
+            // فقط سفارشات مرتبط با رزرو صندلی
+            $where_parts[] = "p.post_status IN ('wc-completed', 'wc-processing', 'wc-on-hold', 'wc-pending', 'wc-cancelled')";
         }
-        
-        if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
-            $args['date_created'] = '';
-            if (!empty($filters['date_from'])) {
-                $args['date_created'] .= '>=' . $filters['date_from'];
-            }
-            if (!empty($filters['date_to'])) {
-                if (!empty($args['date_created'])) $args['date_created'] .= '...';
-                $args['date_created'] .= '<=' . $filters['date_to'];
-            }
+
+        // فیلتر محصول
+        if (!empty($filters['product_id'])) {
+            $where_parts[] = "EXISTS (
+                SELECT 1 FROM {$wpdb->prefix}woocommerce_order_items oi
+                INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id
+                WHERE oi.order_id = p.ID
+                AND oim.meta_key = '_product_id'
+                AND oim.meta_value = %d
+            )";
+            $where_values[] = $filters['product_id'];
         }
-        
-        // گرفتن سفارش‌ها
-        $orders = wc_get_orders($args);
-        
-        // تبدیل به فرمت مورد نیاز ما
-        $bookings = array();
-        foreach ($orders as $order) {
-            $booking = new stdClass();
-            $booking->ID = $order->get_id();
-            $booking->post_date = $order->get_date_created()->format('Y-m-d H:i:s');
-            $booking->post_status = 'wc-' . $order->get_status(); // اضافه کردن prefix
-            $booking->post_title = 'Order #' . $order->get_id();
-            $booking->display_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();
-            $booking->user_email = $order->get_billing_email();
-            $booking->order_total = $order->get_total();
-            
-            $bookings[] = $booking;
+
+        // فیلتر تاریخ
+        if (!empty($filters['date_from'])) {
+            $where_parts[] = "DATE(p.post_date) >= %s";
+            $where_values[] = $filters['date_from'];
         }
-        
-        error_log('VSBBM - Found ' . count($bookings) . ' bookings via wc_get_orders()');
-        
+        if (!empty($filters['date_to'])) {
+            $where_parts[] = "DATE(p.post_date) <= %s";
+            $where_values[] = $filters['date_to'];
+        }
+
+        // فیلتر جستجو
+        if (!empty($filters['search'])) {
+            $search = '%' . $wpdb->esc_like($filters['search']) . '%';
+            $where_parts[] = "(p.ID LIKE %s OR pm.meta_value LIKE %s OR u.display_name LIKE %s OR u.user_email LIKE %s)";
+            $where_values[] = $search;
+            $where_values[] = $search;
+            $where_values[] = $search;
+            $where_values[] = $search;
+        }
+
+        $where_clause = !empty($where_parts) ? 'WHERE ' . implode(' AND ', $where_parts) : '';
+
+        // Query بهینه با JOIN
+        $query = "
+            SELECT SQL_CALC_FOUND_ROWS
+                p.ID,
+                p.post_date,
+                p.post_status,
+                p.post_title,
+                u.display_name,
+                u.user_email,
+                pm.meta_value as order_total
+            FROM {$wpdb->posts} p
+            LEFT JOIN {$wpdb->users} u ON p.post_author = u.ID
+            LEFT JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_order_total'
+            {$where_clause}
+            ORDER BY p.post_date DESC
+            LIMIT 1000
+        ";
+
+        if (!empty($where_values)) {
+            $query = $wpdb->prepare($query, $where_values);
+        }
+
+        $bookings = $wpdb->get_results($query);
+
+        // تبدیل به فرمت مورد نیاز
+        foreach ($bookings as $booking) {
+            $booking->post_status = str_replace('wc-', '', $booking->post_status);
+            $booking->order_total = $booking->order_total ?: '0';
+        }
+
+        error_log('VSBBM - Found ' . count($bookings) . ' bookings via optimized query');
+
         return $bookings;
-    }    
+    }
 
     private function get_booking_statuses() {
         // استفاده از statusهای واقعی WooCommerce
