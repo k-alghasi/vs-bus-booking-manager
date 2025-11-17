@@ -104,6 +104,7 @@ require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-reservations.php';
 require_once VSBBM_PLUGIN_PATH . 'includes/class-booking-handler.php';
 require_once VSBBM_PLUGIN_PATH . 'includes/class-admin-interface.php';
 require_once VSBBM_PLUGIN_PATH . 'includes/class-email-notifications.php';
+require_once VSBBM_PLUGIN_PATH . 'includes/class-ticket-manager.php';
 
 // مقداردهی اولیه ماژول‌ها - این‌ها در کلاس اصلی فراخوانی می‌شوند
 // VSBBM_Blacklist::init();

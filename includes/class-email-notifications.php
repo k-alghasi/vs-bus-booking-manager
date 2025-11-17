@@ -87,7 +87,10 @@ class VSBBM_Email_Notifications {
         $subject = $this->get_email_subject('customer_confirmation');
         $message = $this->get_customer_confirmation_email_content($order);
 
-        $this->send_email($customer_email, $subject, $message, 'customer_confirmation');
+        // پیوست کردن بلیط‌ها
+        $attachments = $this->get_ticket_attachments($order);
+
+        $this->send_email($customer_email, $subject, $message, 'customer_confirmation', $attachments);
     }
 
     /**
@@ -181,7 +184,7 @@ class VSBBM_Email_Notifications {
     /**
      * ارسال ایمیل
      */
-    private function send_email($to, $subject, $message, $email_type) {
+    private function send_email($to, $subject, $message, $email_type, $attachments = array()) {
         $headers = array(
             'Content-Type: text/html; charset=UTF-8',
             'From: ' . $this->get_email_setting('from_name') . ' <' . $this->get_email_setting('from_email') . '>'
@@ -192,7 +195,7 @@ class VSBBM_Email_Notifications {
             $headers[] = 'Bcc: ' . $this->get_admin_email();
         }
 
-        $sent = wp_mail($to, $subject, $message, $headers);
+        $sent = wp_mail($to, $subject, $message, $headers, $attachments);
 
         if ($sent) {
             error_log("VSBBM Email sent successfully: {$email_type} to {$to}");
@@ -201,6 +204,28 @@ class VSBBM_Email_Notifications {
         }
 
         return $sent;
+    }
+
+    /**
+     * دریافت پیوست‌های بلیط برای سفارش
+     */
+    private function get_ticket_attachments($order) {
+        $attachments = array();
+
+        if (class_exists('VSBBM_Ticket_Manager')) {
+            $tickets = VSBBM_Ticket_Manager::get_tickets_for_order($order->get_id());
+
+            foreach ($tickets as $ticket) {
+                if ($ticket->pdf_path) {
+                    $file_path = wp_upload_dir()['basedir'] . $ticket->pdf_path;
+                    if (file_exists($file_path)) {
+                        $attachments[] = $file_path;
+                    }
+                }
+            }
+        }
+
+        return $attachments;
     }
 
     /**

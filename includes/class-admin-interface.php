@@ -18,10 +18,11 @@ class VSBBM_Admin_Interface {
         add_action('wp_ajax_vsbbm_get_booking_details', array($this, 'get_booking_details_ajax'));
         add_action('wp_ajax_vsbbm_update_booking_status', array($this, 'update_booking_status_ajax'));
         add_action('wp_ajax_vsbbm_export_bookings', array($this, 'export_bookings_ajax'));
-        
+        add_action('wp_ajax_vsbbm_use_ticket', array($this, 'use_ticket_ajax'));
+
         // اضافه کردن hook برای نمایش اطلاعات مسافر در صفحه سفارش
         add_action('woocommerce_before_order_itemmeta', array($this, 'display_order_passenger_info'), 10, 3);
-        
+
         // اضافه کردن هوک‌های جدید برای فیلدهای مسافر
         add_action('admin_menu', array($this, 'add_passenger_fields_settings'));
         add_action('admin_init', array($this, 'register_passenger_fields_settings'));
@@ -101,6 +102,15 @@ class VSBBM_Admin_Interface {
             'manage_options',
             'vsbbm-settings',
             array($this, 'render_settings_page')
+        );
+
+        add_submenu_page(
+            'vsbbm-dashboard',
+            'مدیریت بلیط‌ها',
+            'بلیط‌ها',
+            'manage_options',
+            'vsbbm-tickets',
+            array($this, 'render_tickets_page')
         );
     }
     
@@ -1241,6 +1251,21 @@ $(document).on('click', '.remove-field', function() {
         $wc_statuses = wc_get_order_statuses();
         return $wc_statuses[$status] ?? $status;
     }
+
+    /**
+     * AJAX handler for using tickets
+     */
+    public function use_ticket_ajax() {
+        check_ajax_referer('vsbbm_admin_nonce', 'nonce');
+
+        $ticket_id = intval($_POST['ticket_id']);
+
+        if (VSBBM_Ticket_Manager::use_ticket($ticket_id)) {
+            wp_send_json_success('بلیط با موفقیت استفاده شد');
+        } else {
+            wp_send_json_error('خطا در بروزرسانی وضعیت بلیط');
+        }
+    }
     
     private function get_settings() {
         return get_option('vsbbm_settings', array(
@@ -1507,6 +1532,421 @@ $(document).on('click', '.remove-field', function() {
                 $label = isset($action_labels[$action]) ? $action_labels[$action] : $action;
                 echo '<div class="notice notice-success"><p>' . sprintf('%d رزرو به وضعیت "%s" تغییر یافت.', $processed, $label) . '</p></div>';
             });
+        }
+    }
+
+    /**
+     * نمایش صفحه مدیریت بلیط‌ها
+     */
+    public function render_tickets_page() {
+        // پردازش actions
+        $this->process_ticket_actions();
+
+        // دریافت پارامترهای فیلتر
+        $filters = array(
+            'status' => isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '',
+            'search' => isset($_GET['search']) ? sanitize_text_field($_GET['search']) : ''
+        );
+
+        $tickets = $this->get_tickets($filters);
+
+        ?>
+        <div class="wrap vsbbm-admin-tickets">
+            <h1 class="wp-heading-inline">مدیریت بلیط‌های الکترونیکی</h1>
+
+            <!-- فیلترها -->
+            <div class="vsbbm-filters">
+                <form method="get" class="vsbbm-filter-form">
+                    <input type="hidden" name="page" value="vsbbm-tickets">
+
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label for="status">وضعیت:</label>
+                            <select name="status" id="status">
+                                <option value="">همه وضعیت‌ها</option>
+                                <option value="active" <?php selected($filters['status'], 'active'); ?>>فعال</option>
+                                <option value="used" <?php selected($filters['status'], 'used'); ?>>استفاده شده</option>
+                                <option value="cancelled" <?php selected($filters['status'], 'cancelled'); ?>>لغو شده</option>
+                                <option value="expired" <?php selected($filters['status'], 'expired'); ?>>منقضی شده</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="search">جستجو:</label>
+                            <input type="text" name="search" id="search" value="<?php echo esc_attr($filters['search']); ?>" placeholder="شماره بلیط یا شماره سفارش">
+                        </div>
+
+                        <div class="filter-actions">
+                            <button type="submit" class="button button-primary">اعمال فیلتر</button>
+                            <a href="<?php echo admin_url('admin.php?page=vsbbm-tickets'); ?>" class="button">حذف فیلترها</a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- آمار سریع -->
+            <div class="vsbbm-quick-stats">
+                <div class="quick-stat">
+                    <span class="stat-number"><?php echo number_format(count($tickets)); ?></span>
+                    <span class="stat-label">کل بلیط‌ها</span>
+                </div>
+                <div class="quick-stat">
+                    <span class="stat-number"><?php echo $this->count_tickets_by_status($tickets, 'active'); ?></span>
+                    <span class="stat-label">بلیط فعال</span>
+                </div>
+                <div class="quick-stat">
+                    <span class="stat-number"><?php echo $this->count_tickets_by_status($tickets, 'used'); ?></span>
+                    <span class="stat-label">بلیط استفاده شده</span>
+                </div>
+            </div>
+
+            <!-- جدول بلیط‌ها -->
+            <div class="vsbbm-tickets-table">
+                <table id="vsbbm-tickets-datatable" class="wp-list-table widefat fixed striped">
+                    <thead>
+                        <tr>
+                            <th>شماره بلیط</th>
+                            <th>شماره سفارش</th>
+                            <th>مسافر</th>
+                            <th>وضعیت</th>
+                            <th>تاریخ صدور</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (!empty($tickets)): ?>
+                            <?php foreach ($tickets as $ticket): ?>
+                                <?php
+                                $passenger_data = json_decode($ticket->passenger_data, true);
+                                $status_class = 'status-' . $ticket->status;
+                                ?>
+                                <tr>
+                                    <td>
+                                        <strong><?php echo esc_html($ticket->ticket_number); ?></strong>
+                                    </td>
+                                    <td>
+                                        <a href="<?php echo get_edit_post_link($ticket->order_id); ?>" target="_blank">
+                                            #<?php echo esc_html($ticket->order_id); ?>
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <?php echo esc_html($passenger_data['name'] ?? 'نامشخص'); ?>
+                                    </td>
+                                    <td>
+                                        <span class="status-badge <?php echo esc_attr($status_class); ?>">
+                                            <?php echo $this->get_ticket_status_label($ticket->status); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <?php echo date_i18n('Y/m/d H:i', strtotime($ticket->created_at)); ?>
+                                    </td>
+                                    <td>
+                                        <div class="action-buttons">
+                                            <?php if ($ticket->pdf_path): ?>
+                                                <a href="<?php echo wp_upload_dir()['baseurl'] . $ticket->pdf_path; ?>"
+                                                   class="button button-small" target="_blank">
+                                                    مشاهده PDF
+                                                </a>
+                                            <?php endif; ?>
+
+                                            <?php if ($ticket->status === 'active'): ?>
+                                                <button type="button" class="button button-small button-secondary use-ticket"
+                                                        data-ticket-id="<?php echo $ticket->id; ?>">
+                                                    استفاده شد
+                                                </button>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="6" class="no-records">
+                                    <div class="no-data-message">
+                                        <span class="dashicons dashicons-info"></span>
+                                        <p>بلیطی یافت نشد.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <style>
+            .vsbbm-admin-tickets {
+                padding: 20px;
+            }
+
+            .vsbbm-filters {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                margin-bottom: 20px;
+            }
+
+            .filter-row {
+                display: flex;
+                gap: 15px;
+                align-items: end;
+                flex-wrap: wrap;
+            }
+
+            .filter-group {
+                display: flex;
+                flex-direction: column;
+                gap: 5px;
+            }
+
+            .filter-group label {
+                font-weight: bold;
+                font-size: 12px;
+                color: #666;
+            }
+
+            .filter-group input,
+            .filter-group select {
+                padding: 8px 12px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                min-width: 150px;
+            }
+
+            .filter-actions {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+
+            .vsbbm-quick-stats {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+                margin-bottom: 20px;
+            }
+
+            .quick-stat {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                text-align: center;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                border-left: 4px solid #667eea;
+            }
+
+            .stat-number {
+                display: block;
+                font-size: 24px;
+                font-weight: bold;
+                color: #333;
+                margin-bottom: 5px;
+            }
+
+            .stat-label {
+                font-size: 14px;
+                color: #666;
+            }
+
+            .vsbbm-tickets-table {
+                background: white;
+                border-radius: 8px;
+                overflow: hidden;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+
+            #vsbbm-tickets-datatable {
+                width: 100% !important;
+                border: none;
+            }
+
+            #vsbbm-tickets-datatable th {
+                background: #f8f9fa;
+                font-weight: bold;
+                padding: 15px;
+            }
+
+            #vsbbm-tickets-datatable td {
+                padding: 12px 15px;
+                vertical-align: middle;
+            }
+
+            .status-badge {
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: bold;
+                display: inline-block;
+            }
+
+            .status-active {
+                background: #d4edda;
+                color: #155724;
+            }
+
+            .status-used {
+                background: #d1ecf1;
+                color: #0c5460;
+            }
+
+            .status-cancelled {
+                background: #f8d7da;
+                color: #721c24;
+            }
+
+            .status-expired {
+                background: #fff3cd;
+                color: #856404;
+            }
+
+            .action-buttons {
+                display: flex;
+                gap: 5px;
+                align-items: center;
+            }
+
+            .no-records {
+                text-align: center;
+                padding: 40px !important;
+            }
+
+            .no-data-message {
+                color: #666;
+            }
+
+            .no-data-message .dashicons {
+                font-size: 48px;
+                width: 48px;
+                height: 48px;
+                margin-bottom: 10px;
+            }
+        </style>
+
+        <script>
+        jQuery(document).ready(function($) {
+            // راه‌اندازی DataTable
+            $('#vsbbm-tickets-datatable').DataTable({
+                language: {
+                    url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/fa.json'
+                },
+                order: [[4, 'desc']], // مرتب‌سازی بر اساس تاریخ
+                pageLength: 25,
+                responsive: true,
+                autoWidth: false
+            });
+
+            // استفاده از بلیط
+            $('.use-ticket').on('click', function() {
+                const ticketId = $(this).data('ticket-id');
+                const $button = $(this);
+
+                if (confirm('آیا از استفاده این بلیط مطمئن هستید؟ این عمل قابل بازگشت نیست.')) {
+                    $.ajax({
+                        url: vsbbm_admin.ajax_url,
+                        type: 'POST',
+                        data: {
+                            action: 'vsbbm_use_ticket',
+                            ticket_id: ticketId,
+                            nonce: vsbbm_admin.nonce
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                $button.remove();
+                                location.reload();
+                            } else {
+                                alert('خطا در بروزرسانی وضعیت بلیط');
+                            }
+                        },
+                        error: function() {
+                            alert('خطا در ارتباط با سرور');
+                        }
+                    });
+                }
+            });
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * دریافت بلیط‌ها با فیلتر
+     */
+    private function get_tickets($filters = array()) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'vsbbm_tickets';
+
+        $where_parts = array('1=1');
+        $where_values = array();
+
+        if (!empty($filters['status'])) {
+            $where_parts[] = 'status = %s';
+            $where_values[] = $filters['status'];
+        }
+
+        if (!empty($filters['search'])) {
+            $search = '%' . $wpdb->esc_like($filters['search']) . '%';
+            $where_parts[] = '(ticket_number LIKE %s OR order_id = %d)';
+            $where_values[] = $search;
+            $where_values[] = intval($filters['search']);
+        }
+
+        $where_clause = implode(' AND ', $where_parts);
+
+        $query = "SELECT * FROM $table_name WHERE $where_clause ORDER BY created_at DESC";
+
+        if (!empty($where_values)) {
+            $query = $wpdb->prepare($query, $where_values);
+        }
+
+        return $wpdb->get_results($query);
+    }
+
+    /**
+     * شمارش بلیط‌ها بر اساس وضعیت
+     */
+    private function count_tickets_by_status($tickets, $status) {
+        $count = 0;
+        foreach ($tickets as $ticket) {
+            if ($ticket->status === $status) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * دریافت لیبل وضعیت بلیط
+     */
+    private function get_ticket_status_label($status) {
+        $labels = array(
+            'active' => 'فعال',
+            'used' => 'استفاده شده',
+            'cancelled' => 'لغو شده',
+            'expired' => 'منقضی شده'
+        );
+
+        return $labels[$status] ?? $status;
+    }
+
+    /**
+     * پردازش عملیات بلیط
+     */
+    private function process_ticket_actions() {
+        if (!isset($_GET['action']) || !isset($_GET['ticket_id']) || !wp_verify_nonce($_GET['_wpnonce'], 'vsbbm_ticket_action')) {
+            return;
+        }
+
+        $action = sanitize_text_field($_GET['action']);
+        $ticket_id = intval($_GET['ticket_id']);
+
+        switch ($action) {
+            case 'use':
+                VSBBM_Ticket_Manager::use_ticket($ticket_id);
+                add_action('admin_notices', function() {
+                    echo '<div class="notice notice-success"><p>بلیط با موفقیت استفاده شد.</p></div>';
+                });
+                break;
         }
     }
     
