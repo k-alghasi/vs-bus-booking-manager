@@ -1478,11 +1478,14 @@ $(document).on('click', '.remove-field', function() {
     }
     
     public function get_booking_details_ajax() {
-        check_ajax_referer('vsbbm_admin_nonce', 'nonce');
-        
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'vsbbm_admin_nonce')) {
+            wp_send_json_error('امنیت درخواست تایید نشد');
+            return;
+        }
+
         $booking_id = intval($_POST['booking_id']);
         $booking = $this->get_booking_details($booking_id);
-        
+
         if ($booking) {
             wp_send_json_success($booking);
         } else {
@@ -1524,11 +1527,14 @@ $(document).on('click', '.remove-field', function() {
     }
     
     public function update_booking_status_ajax() {
-        check_ajax_referer('vsbbm_admin_nonce', 'nonce');
-        
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'vsbbm_admin_nonce')) {
+            wp_send_json_error('امنیت درخواست تایید نشد');
+            return;
+        }
+
         $booking_id = intval($_POST['booking_id']);
         $status = sanitize_text_field($_POST['status']);
-        
+
         $order = wc_get_order($booking_id);
         if ($order) {
             $order->update_status($status);
@@ -1539,26 +1545,29 @@ $(document).on('click', '.remove-field', function() {
     }
     
     public function export_bookings_ajax() {
-        check_ajax_referer('vsbbm_admin_nonce', 'nonce');
-        
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'vsbbm_admin_nonce')) {
+            wp_send_json_error('امنیت درخواست تایید نشد');
+            return;
+        }
+
         $filters = array(
             'status' => isset($_POST['status']) ? sanitize_text_field($_POST['status']) : '',
             'date_from' => isset($_POST['date_from']) ? sanitize_text_field($_POST['date_from']) : '',
             'date_to' => isset($_POST['date_to']) ? sanitize_text_field($_POST['date_to']) : ''
         );
-        
+
         $bookings = $this->get_all_bookings($filters);
-        
+
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename=bookings-export-' . date('Y-m-d') . '.csv');
-        
+
         $output = fopen('php://output', 'w');
-        
+
         // هدر CSV
         fputcsv($output, array(
             'شماره سفارش', 'تاریخ', 'نام مشتری', 'ایمیل', 'مبلغ', 'وضعیت'
         ));
-        
+
         // داده‌ها
         foreach ($bookings as $booking) {
             fputcsv($output, array(
@@ -1570,7 +1579,7 @@ $(document).on('click', '.remove-field', function() {
                 $this->get_status_label($booking->post_status)
             ));
         }
-        
+
         fclose($output);
         exit;
     }
@@ -1584,7 +1593,10 @@ $(document).on('click', '.remove-field', function() {
      * AJAX handler for using tickets
      */
     public function use_ticket_ajax() {
-        check_ajax_referer('vsbbm_admin_nonce', 'nonce');
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'vsbbm_admin_nonce')) {
+            wp_send_json_error('امنیت درخواست تایید نشد');
+            return;
+        }
 
         $ticket_id = intval($_POST['ticket_id']);
 

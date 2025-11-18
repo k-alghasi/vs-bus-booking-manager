@@ -376,7 +376,7 @@ class VSBBM_Seat_Manager {
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: 'action=vsbbm_get_passenger_fields'
+        body: 'action=vsbbm_get_passenger_fields&nonce=<?php echo wp_create_nonce('vsbbm_frontend_nonce'); ?>'
     })
     .then(response => response.json())
     .then(data => {
@@ -615,6 +615,7 @@ class VSBBM_Seat_Manager {
             },
             body: new URLSearchParams({
                 action: 'vsbbm_add_to_cart',
+                nonce: '<?php echo wp_create_nonce('vsbbm_frontend_nonce'); ?>',
                 product_id: productId,
                 quantity: window.selectedSeats.length,
                 vsbbm_passenger_data: JSON.stringify(passengerData)
@@ -943,10 +944,16 @@ public static function add_to_cart_ajax() {
         }
     }
 
+    // بررسی nonce
+    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'vsbbm_frontend_nonce')) {
+        wp_send_json_error('امنیت درخواست تایید نشد');
+        return;
+    }
+
     // Debug log
     error_log('🔵 VSBBM AJAX: add_to_cart_ajax called');
     error_log('🔵 POST data: ' . print_r($_POST, true));
-    
+
     // بررسی داده‌ها
     if (empty($_POST['product_id']) || empty($_POST['vsbbm_passenger_data'])) {
         error_log('🔴 VSBBM AJAX: Missing data');
@@ -1077,6 +1084,12 @@ public static function get_passenger_fields_ajax() {
         if (isset($_SERVER['HTTP_ACCEPT_ENCODING']) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== false) {
             ob_start('ob_gzhandler');
         }
+    }
+
+    // بررسی nonce
+    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'vsbbm_frontend_nonce')) {
+        wp_send_json_error('امنیت درخواست تایید نشد');
+        return;
     }
 
     $cache_key = 'vsbbm_passenger_fields';
