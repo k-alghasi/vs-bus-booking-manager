@@ -51,6 +51,7 @@ class VS_Bus_Booking_Manager {
         require_once VSBBM_PLUGIN_PATH . 'includes/class-admin-interface.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-email-notifications.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-ticket-manager.php';
+        require_once VSBBM_PLUGIN_PATH . 'includes/class-sms-notifications.php';
     }
     
     public function activate() {
@@ -105,6 +106,12 @@ class VS_Bus_Booking_Manager {
         // کلاس Ticket Manager خود-initialize می‌شود
         error_log('🎯 VSBBM: Ticket Manager initialized');
     }
+
+    // مقداردهی اولیه سیستم SMS
+    if (class_exists('VSBBM_SMS_Notifications')) {
+        // کلاس SMS Notifications خود-initialize می‌شود
+        error_log('🎯 VSBBM: SMS Notifications initialized');
+    }
 }
     
     public function admin_init() {
@@ -135,6 +142,7 @@ require_once VSBBM_PLUGIN_PATH . 'includes/class-booking-handler.php';
 require_once VSBBM_PLUGIN_PATH . 'includes/class-admin-interface.php';
 require_once VSBBM_PLUGIN_PATH . 'includes/class-email-notifications.php';
 require_once VSBBM_PLUGIN_PATH . 'includes/class-ticket-manager.php';
+require_once VSBBM_PLUGIN_PATH . 'includes/class-sms-notifications.php';
 
 // مقداردهی اولیه ماژول‌ها - این‌ها در کلاس اصلی فراخوانی می‌شوند
 // VSBBM_Blacklist::init();
