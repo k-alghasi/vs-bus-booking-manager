@@ -814,10 +814,11 @@ class VSBBM_Seat_Manager {
     }
     
     /**
-     * دریافت صندلی‌های رزرو شده
+     * دریافت صندلی‌های رزرو شده (با کش)
      */
     public static function get_reserved_seats($product_id) {
-        return VSBBM_Seat_Reservations::get_reserved_seats($product_id);
+        $cache_manager = VSBBM_Cache_Manager::get_instance();
+        return $cache_manager->get_reserved_seats($product_id);
     }
     
     /**

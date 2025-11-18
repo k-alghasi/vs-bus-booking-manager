@@ -268,14 +268,25 @@ class VSBBM_REST_API {
     }
 
     /**
-     * دریافت لیست محصولات
+     * دریافت لیست محصولات (با کش)
      */
     public function get_products($request) {
+        $cache_manager = VSBBM_Cache_Manager::get_instance();
+
+        $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
+        $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 10;
+        $cache_key = 'products_list_' . $page . '_' . $per_page;
+
+        $cached = $cache_manager->get($cache_key);
+        if (false !== $cached) {
+            return $cached;
+        }
+
         $args = array(
             'post_type' => 'product',
             'post_status' => 'publish',
-            'posts_per_page' => isset($_GET['per_page']) ? intval($_GET['per_page']) : 10,
-            'paged' => isset($_GET['page']) ? intval($_GET['page']) : 1,
+            'posts_per_page' => $per_page,
+            'paged' => $page,
             'meta_query' => array(
                 array(
                     'key' => '_vsbbm_enable_seat_booking',
@@ -307,16 +318,19 @@ class VSBBM_REST_API {
             );
         }
 
-        return array(
+        $result = array(
             'success' => true,
             'products' => $products,
             'pagination' => array(
                 'total' => $query->found_posts,
                 'total_pages' => $query->max_num_pages,
-                'current_page' => $args['paged'],
-                'per_page' => $args['posts_per_page']
+                'current_page' => $page,
+                'per_page' => $per_page
             )
         );
+
+        $cache_manager->set($cache_key, $result, 600); // 10 minutes
+        return $result;
     }
 
     /**

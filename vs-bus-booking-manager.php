@@ -53,6 +53,7 @@ class VS_Bus_Booking_Manager {
         require_once VSBBM_PLUGIN_PATH . 'includes/class-ticket-manager.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-sms-notifications.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
+        require_once VSBBM_PLUGIN_PATH . 'includes/class-cache-manager.php';
     }
     
     public function activate() {

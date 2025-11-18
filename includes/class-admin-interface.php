@@ -26,6 +26,9 @@ class VSBBM_Admin_Interface {
         // اضافه کردن هوک‌های جدید برای فیلدهای مسافر
         add_action('admin_menu', array($this, 'add_passenger_fields_settings'));
         add_action('admin_init', array($this, 'register_passenger_fields_settings'));
+
+        // ذخیره تنظیمات کش
+        add_action('admin_init', array($this, 'handle_cache_settings_save'));
     }
     
     public function add_admin_menus() {
@@ -67,7 +70,16 @@ class VSBBM_Admin_Interface {
             'vsbbm-reports',
             array($this, 'render_reports_page')
         );
-        
+
+        add_submenu_page(
+            'vsbbm-dashboard',
+            'کش و بهینه‌سازی',
+            'کش و بهینه‌سازی',
+            'manage_options',
+            'vsbbm-cache',
+            array($this, 'render_cache_page')
+        );
+
         add_submenu_page(
             'vsbbm-dashboard',
             'لیست سیاه',
@@ -697,6 +709,278 @@ class VSBBM_Admin_Interface {
             togglePanelSettings(); // Initialize on page load
         });
         </script>
+        <?php
+    }
+
+    /**
+     * نمایش صفحه مدیریت کش
+     */
+    public function render_cache_page() {
+        $cache_manager = VSBBM_Cache_Manager::get_instance();
+
+        // پردازش پاکسازی کش
+        if (isset($_POST['vsbbm_clear_cache']) && wp_verify_nonce($_POST['_wpnonce'], 'vsbbm_clear_cache')) {
+            $cache_type = sanitize_text_field($_POST['cache_type'] ?? 'all');
+
+            switch ($cache_type) {
+                case 'all':
+                    $cache_manager->clear_all_cache();
+                    $message = 'تمام کش پاک شد.';
+                    break;
+                case 'products':
+                    $cache_manager->clear_product_cache();
+                    $message = 'کش محصولات پاک شد.';
+                    break;
+                case 'reservations':
+                    $cache_manager->clear_reservation_cache();
+                    $message = 'کش رزروها پاک شد.';
+                    break;
+                case 'tickets':
+                    $cache_manager->clear_ticket_cache();
+                    $message = 'کش بلیط‌ها پاک شد.';
+                    break;
+                case 'stats':
+                    $cache_manager->clear_stats_cache();
+                    $message = 'کش آمار پاک شد.';
+                    break;
+            }
+
+            add_action('admin_notices', function() use ($message) {
+                echo '<div class="notice notice-success"><p>' . esc_html($message) . '</p></div>';
+            });
+        }
+
+        // دریافت آمار کش
+        $cache_stats = $cache_manager->get_cache_stats();
+
+        ?>
+        <div class="wrap">
+            <h1>🗂️ مدیریت کش و بهینه‌سازی</h1>
+
+            <div class="notice notice-info">
+                <p>💡 <strong>توجه:</strong> سیستم کش برای بهبود عملکرد استفاده می‌شود. پاکسازی کش ممکن است سرعت بارگذاری را موقتاً کاهش دهد.</p>
+            </div>
+
+            <!-- آمار کش -->
+            <div class="vsbbm-cache-stats">
+                <h3>📊 آمار کش</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📦</div>
+                        <div class="stat-content">
+                            <div class="stat-number"><?php echo number_format($cache_stats['total_keys'] ?? 0); ?></div>
+                            <div class="stat-label">کل کلیدهای کش</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⏱️</div>
+                        <div class="stat-content">
+                            <div class="stat-number"><?php echo number_format($cache_stats['hit_rate'] ?? 0, 1); ?>%</div>
+                            <div class="stat-label">نرخ موفقیت کش</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💾</div>
+                        <div class="stat-content">
+                            <div class="stat-number"><?php echo number_format($cache_stats['memory_usage'] ?? 0); ?> KB</div>
+                            <div class="stat-label">استفاده از حافظه</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🔄</div>
+                        <div class="stat-content">
+                            <div class="stat-number"><?php echo number_format($cache_stats['uptime'] ?? 0); ?>h</div>
+                            <div class="stat-label">زمان فعالیت</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- پاکسازی کش -->
+            <div class="vsbbm-cache-clear">
+                <h3>🧹 پاکسازی کش</h3>
+                <form method="post" action="">
+                    <?php wp_nonce_field('vsbbm_clear_cache'); ?>
+
+                    <div class="cache-options">
+                        <div class="option-group">
+                            <label>
+                                <input type="radio" name="cache_type" value="all" checked>
+                                <strong>تمام کش</strong> - پاکسازی کامل تمام داده‌های کش شده
+                            </label>
+                            <p class="description">پاکسازی تمام کش‌ها شامل محصولات، رزروها، بلیط‌ها و آمار</p>
+                        </div>
+
+                        <div class="option-group">
+                            <label>
+                                <input type="radio" name="cache_type" value="products">
+                                <strong>کش محصولات</strong> - پاکسازی کش لیست محصولات و جزئیات
+                            </label>
+                            <p class="description">برای زمانی که محصولات را ویرایش کرده‌اید</p>
+                        </div>
+
+                        <div class="option-group">
+                            <label>
+                                <input type="radio" name="cache_type" value="reservations">
+                                <strong>کش رزروها</strong> - پاکسازی کش صندلی‌های رزرو شده
+                            </label>
+                            <p class="description">برای زمانی که رزروها تغییر کرده‌اند</p>
+                        </div>
+
+                        <div class="option-group">
+                            <label>
+                                <input type="radio" name="cache_type" value="tickets">
+                                <strong>کش بلیط‌ها</strong> - پاکسازی کش بلیط‌های الکترونیکی
+                            </label>
+                            <p class="description">برای زمانی که بلیط‌ها تغییر کرده‌اند</p>
+                        </div>
+
+                        <div class="option-group">
+                            <label>
+                                <input type="radio" name="cache_type" value="stats">
+                                <strong>کش آمار</strong> - پاکسازی کش آمار و گزارش‌ها
+                            </label>
+                            <p class="description">برای بروزرسانی آمار داشبورد</p>
+                        </div>
+                    </div>
+
+                    <p class="submit">
+                        <input type="submit" name="vsbbm_clear_cache" class="button button-primary"
+                               value="🗑️ پاکسازی کش انتخاب شده">
+                    </p>
+                </form>
+            </div>
+
+            <!-- تنظیمات کش -->
+            <div class="vsbbm-cache-settings">
+                <h3>⚙️ تنظیمات کش</h3>
+                <form method="post" action="">
+                    <?php wp_nonce_field('vsbbm_save_cache_settings'); ?>
+
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><label for="cache_enabled">فعال بودن کش</label></th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="cache_enabled" id="cache_enabled"
+                                           value="1" <?php checked(get_option('vsbbm_cache_enabled', true), true); ?>>
+                                    فعال بودن سیستم کش
+                                </label>
+                                <p class="description">غیرفعال کردن کش ممکن است عملکرد را کاهش دهد</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="cache_ttl">زمان زندگی کش (ثانیه)</label></th>
+                            <td>
+                                <input type="number" name="cache_ttl" id="cache_ttl"
+                                       value="<?php echo esc_attr(get_option('vsbbm_cache_ttl', 3600)); ?>"
+                                       class="small-text" min="60" max="86400">
+                                <p class="description">زمان نگهداری داده‌ها در کش (پیش‌فرض: ۱ ساعت)</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="cache_max_keys">حداکثر تعداد کلیدها</label></th>
+                            <td>
+                                <input type="number" name="cache_max_keys" id="cache_max_keys"
+                                       value="<?php echo esc_attr(get_option('vsbbm_cache_max_keys', 1000)); ?>"
+                                       class="small-text" min="100" max="10000">
+                                <p class="description">حداکثر تعداد کلیدهای کش (پیش‌فرض: ۱۰۰۰)</p>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <p class="submit">
+                        <input type="submit" name="vsbbm_save_cache_settings" class="button button-primary"
+                               value="💾 ذخیره تنظیمات">
+                    </p>
+                </form>
+            </div>
+        </div>
+
+        <style>
+            .vsbbm-cache-stats, .vsbbm-cache-clear, .vsbbm-cache-settings {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                margin-bottom: 20px;
+            }
+
+            .vsbbm-cache-stats h3, .vsbbm-cache-clear h3, .vsbbm-cache-settings h3 {
+                margin-top: 0;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #667eea;
+                color: #23282d;
+            }
+
+            .stats-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+                margin-top: 15px;
+            }
+
+            .stat-card {
+                background: #f8f9fa;
+                padding: 20px;
+                border-radius: 8px;
+                text-align: center;
+                border-left: 4px solid #667eea;
+                display: flex;
+                align-items: center;
+                gap: 15px;
+            }
+
+            .stat-icon {
+                font-size: 24px;
+            }
+
+            .stat-content {
+                flex: 1;
+            }
+
+            .stat-number {
+                font-size: 24px;
+                font-weight: bold;
+                color: #333;
+                margin-bottom: 5px;
+            }
+
+            .stat-label {
+                font-size: 14px;
+                color: #666;
+            }
+
+            .cache-options {
+                margin: 20px 0;
+            }
+
+            .option-group {
+                background: #f8f9fa;
+                padding: 15px;
+                border-radius: 6px;
+                margin-bottom: 10px;
+                border-left: 4px solid #0073aa;
+            }
+
+            .option-group label {
+                display: block;
+                font-weight: bold;
+                margin-bottom: 5px;
+                cursor: pointer;
+            }
+
+            .option-group input[type="radio"] {
+                margin-left: 0;
+                margin-right: 8px;
+            }
+
+            .option-group .description {
+                margin: 5px 0 0 20px;
+                color: #666;
+                font-style: italic;
+            }
+        </style>
         <?php
     }
 
@@ -1807,6 +2091,42 @@ $(document).on('click', '.remove-field', function() {
 
         add_action('admin_notices', function() {
             echo '<div class="notice notice-success"><p>تنظیمات SMS با موفقیت ذخیره شد.</p></div>';
+        });
+    }
+
+    /**
+     * هندل ذخیره تنظیمات کش
+     */
+    public function handle_cache_settings_save() {
+        if (isset($_POST['vsbbm_save_cache_settings'])) {
+            $this->save_cache_settings();
+        }
+    }
+
+    /**
+     * ذخیره تنظیمات کش
+     */
+    private function save_cache_settings() {
+        if (!wp_verify_nonce($_POST['_wpnonce'], 'vsbbm_save_cache_settings')) {
+            return;
+        }
+
+        $settings = array(
+            'cache_enabled' => isset($_POST['cache_enabled']),
+            'cache_ttl' => intval($_POST['cache_ttl']),
+            'cache_max_keys' => intval($_POST['cache_max_keys']),
+        );
+
+        update_option('vsbbm_cache_enabled', $settings['cache_enabled']);
+        update_option('vsbbm_cache_ttl', $settings['cache_ttl']);
+        update_option('vsbbm_cache_max_keys', $settings['cache_max_keys']);
+
+        // بروزرسانی تنظیمات کش منیجر
+        $cache_manager = VSBBM_Cache_Manager::get_instance();
+        $cache_manager->update_settings($settings);
+
+        add_action('admin_notices', function() {
+            echo '<div class="notice notice-success"><p>تنظیمات کش با موفقیت ذخیره شد.</p></div>';
         });
     }
 

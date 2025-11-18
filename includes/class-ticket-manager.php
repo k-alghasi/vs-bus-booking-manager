@@ -706,16 +706,11 @@ class VSBBM_Ticket_Manager {
     }
 
     /**
-     * دریافت بلیط‌های یک سفارش
+     * دریافت بلیط‌های یک سفارش (با کش)
      */
     public static function get_tickets_for_order($order_id) {
-        global $wpdb;
-        $table_name = $wpdb->prefix . self::$table_name;
-
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM $table_name WHERE order_id = %d ORDER BY created_at ASC",
-            $order_id
-        ));
+        $cache_manager = VSBBM_Cache_Manager::get_instance();
+        return $cache_manager->get_order_tickets($order_id);
     }
 
     /**
