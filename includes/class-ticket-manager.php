@@ -774,6 +774,47 @@ class VSBBM_Ticket_Manager {
 
         return $result;
     }
+
+    /**
+     * استفاده از بلیط با کد بلیط
+     */
+    public static function use_ticket_by_code($ticket_code) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+
+        // یافتن بلیط با کد
+        $ticket = $wpdb->get_row($wpdb->prepare(
+            "SELECT id, status FROM $table_name WHERE ticket_number = %s",
+            $ticket_code
+        ));
+
+        if (!$ticket) {
+            return new WP_Error('ticket_not_found', 'بلیط یافت نشد');
+        }
+
+        if ($ticket->status !== 'active') {
+            return new WP_Error('ticket_not_active', 'بلیط فعال نیست');
+        }
+
+        // استفاده از بلیط
+        $result = $wpdb->update($table_name,
+            array(
+                'status' => 'used',
+                'used_at' => current_time('mysql')
+            ),
+            array('id' => $ticket->id)
+        );
+
+        if ($result) {
+            return array(
+                'success' => true,
+                'message' => 'بلیط با موفقیت استفاده شد',
+                'ticket_id' => $ticket->id
+            );
+        }
+
+        return new WP_Error('ticket_use_failed', 'خطا در استفاده از بلیط');
+    }
 }
 
 // Initialize the class

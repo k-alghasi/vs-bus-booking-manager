@@ -52,6 +52,7 @@ class VS_Bus_Booking_Manager {
         require_once VSBBM_PLUGIN_PATH . 'includes/class-email-notifications.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-ticket-manager.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-sms-notifications.php';
+        require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
     }
     
     public function activate() {
@@ -65,9 +66,36 @@ class VS_Bus_Booking_Manager {
             VSBBM_Ticket_Manager::create_table();
         }
 
+        // ایجاد جدول API tokens
+        $this->create_api_tokens_table();
+
         flush_rewrite_rules();
     }
-    
+
+    /**
+     * ایجاد جدول API tokens
+     */
+    private function create_api_tokens_table() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'vsbbm_api_tokens';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        $sql = "CREATE TABLE $table_name (
+            id int(11) NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) unsigned NOT NULL,
+            token varchar(255) NOT NULL,
+            expires_at datetime NOT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY token (token),
+            KEY user_id (user_id),
+            KEY expires_at (expires_at)
+        ) $charset_collate;";
+
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+    }
+
     public function deactivate() {
         flush_rewrite_rules();
     }
@@ -112,6 +140,12 @@ class VS_Bus_Booking_Manager {
         // کلاس SMS Notifications خود-initialize می‌شود
         error_log('🎯 VSBBM: SMS Notifications initialized');
     }
+
+    // مقداردهی اولیه REST API
+    if (class_exists('VSBBM_REST_API')) {
+        // کلاس REST API خود-initialize می‌شود
+        error_log('🎯 VSBBM: REST API initialized');
+    }
 }
     
     public function admin_init() {
@@ -143,6 +177,7 @@ require_once VSBBM_PLUGIN_PATH . 'includes/class-admin-interface.php';
 require_once VSBBM_PLUGIN_PATH . 'includes/class-email-notifications.php';
 require_once VSBBM_PLUGIN_PATH . 'includes/class-ticket-manager.php';
 require_once VSBBM_PLUGIN_PATH . 'includes/class-sms-notifications.php';
+require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
 
 // مقداردهی اولیه ماژول‌ها - این‌ها در کلاس اصلی فراخوانی می‌شوند
 // VSBBM_Blacklist::init();
