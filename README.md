@@ -28,13 +28,14 @@ This plugin provides a complete bus seat reservation system with:
 
 ## 🚀 Performance
 
-Version 1.9.1 includes advanced performance optimizations:
+Version 1.9.2 includes enhanced performance and compatibility:
 
 - **Smart Caching**: Up to 70% reduction in seat loading time
 - **Database Optimization**: Advanced indexes for high-speed queries
 - **AJAX Compression**: Gzip-compressed responses for faster interactions
 - **Memory Management**: Efficient resource usage for high-traffic sites
 - **Query Optimization**: Reduced database load by 50% for repeated data
+- **Theme Compatibility**: Improved hooks for better theme integration
 
 ## Installation
 
@@ -45,7 +46,23 @@ Version 1.9.1 includes advanced performance optimizations:
 
 ## Changelog
 
-### Version 1.9.1 (Latest)
+### Version 1.9.2 (Latest)
+- **Bug Fixes**
+  - Fixed critical product display issue with seat selector
+  - Improved theme compatibility with better WooCommerce hooks
+  - Enhanced error handling and debugging capabilities
+
+- **New Features**
+  - Advanced seat layout configurations (2-2-2, 2-3-2, 1-2, VIP, with stairs)
+  - Custom visual editor placeholder for future seat layout designer
+  - Improved admin interface for seat management
+
+- **Technical Improvements**
+  - Changed display hook to `woocommerce_single_product_summary` for better compatibility
+  - Added comprehensive debug logging for troubleshooting
+  - Code cleanup and syntax error fixes
+
+### Version 1.9.1
 - **Performance Optimizations**
   - Advanced caching system with transient storage
   - Database query optimization with new indexes
