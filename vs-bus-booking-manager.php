@@ -55,6 +55,7 @@ class VS_Bus_Booking_Manager {
         require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-license-manager.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-cache-manager.php';
+        require_once VSBBM_PLUGIN_PATH . 'includes/class-custom-layout-editor.php';
     }
     
     public function activate() {

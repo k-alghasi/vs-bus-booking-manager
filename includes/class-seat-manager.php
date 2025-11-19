@@ -187,20 +187,151 @@ class VSBBM_Seat_Manager {
         }
 
         $product_id = $product->get_id();
+        $layout_type = get_post_meta($product_id, '_vsbbm_seat_layout', true) ?: 'grid';
+
+        // Check if custom layout exists
+        $custom_layout_json = get_post_meta($product_id, '_vsbbm_custom_layout', true);
+        $use_custom_layout = ($layout_type === 'custom' && $custom_layout_json);
+
+        if ($use_custom_layout) {
+            self::display_custom_layout($product_id, $custom_layout_json);
+        } else {
+            self::display_standard_layout($product_id, $layout_type);
+        }
+    }
+
+    /**
+     * Display custom layout
+     */
+    private static function display_custom_layout($product_id, $layout_json) {
+        $layout_data = json_decode($layout_json, true);
+        if (!$layout_data || !isset($layout_data['layout'])) {
+            // Fallback to standard layout
+            self::display_standard_layout($product_id, 'grid');
+            return;
+        }
+
+        $reserved_seats = self::get_reserved_seats($product_id) ?: array();
+
+        echo '<div class="vsbbm-seat-selection" style="background: #fff; padding: 25px; margin: 30px 0; border: 2px solid #e0e0e0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">';
+        echo '<h3 style="color: #2c3e50; margin-bottom: 20px; text-align: center;">🎫 انتخاب صندلی</h3>';
+
+        // Create grid layout
+        $rows = $layout_data['grid']['rows'];
+        $cols = $layout_data['grid']['cols'];
+
+        echo '<div class="vsbbm-seat-layout" style="display: grid; grid-template-columns: repeat(' . $cols . ', 1fr); gap: 8px; margin: 25px 0; max-width: ' . ($cols * 60) . 'px; margin: 25px auto;">';
+
+        // Create lookup for cells
+        $cell_lookup = array();
+        foreach ($layout_data['layout'] as $cell) {
+            $key = $cell['x'] . '-' . $cell['y'];
+            $cell_lookup[$key] = $cell;
+        }
+
+        for ($y = 0; $y < $rows; $y++) {
+            for ($x = 0; $x < $cols; $x++) {
+                $key = $x . '-' . $y;
+                $cell = isset($cell_lookup[$key]) ? $cell_lookup[$key] : null;
+
+                if (!$cell || $cell['type'] === 'empty') {
+                    echo '<div class="vsbbm-seat-spacer" style="width: 50px; height: 50px;"></div>';
+                    continue;
+                }
+
+                $is_reserved = ($cell['type'] === 'seat' && isset($cell['number']) && in_array($cell['number'], $reserved_seats));
+                $seat_class = $is_reserved ? 'reserved' : 'available';
+                $cursor = ($cell['type'] === 'seat' && !$is_reserved) ? 'pointer' : 'default';
+
+                $classes = 'vsbbm-seat vsbbm-seat-' . $seat_class;
+                if ($cell['type'] !== 'seat') {
+                    $classes .= ' vsbbm-seat-' . $cell['type'];
+                }
+                if (isset($cell['class'])) {
+                    $classes .= ' vsbbm-seat-' . $cell['class'];
+                }
+
+                $onclick = ($cell['type'] === 'seat' && !$is_reserved && isset($cell['number'])) ?
+                    'onclick="vsbbmSelectSeat(' . $cell['number'] . ', this)"' : '';
+
+                echo '<div class="' . $classes . '" data-seat="' . ($cell['number'] ?? '') . '" style="width: 50px; height: 50px; padding: 5px; text-align: center; border-radius: 6px; cursor: ' . $cursor . '; transition: all 0.3s ease; font-weight: bold; font-size: 14px;" ' . $onclick . '>';
+
+                // Display content based on type
+                switch ($cell['type']) {
+                    case 'seat':
+                        echo $is_reserved ? '⛔' : '💺';
+                        if (isset($cell['number'])) {
+                            echo '<br><small style="font-size: 10px;">' . $cell['number'] . '</small>';
+                        }
+                        break;
+                    case 'aisle':
+                        echo '🚶';
+                        break;
+                    case 'space':
+                        echo '';
+                        break;
+                    case 'stairs':
+                        echo '🪜';
+                        break;
+                    case 'driver':
+                        echo '👤';
+                        break;
+                }
+
+                echo '</div>';
+            }
+        }
+
+        echo '</div>';
+
+        echo '<div id="vsbbm-selected-seats" style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0; display: none;">';
+        echo '<h4 style="margin: 0 0 15px 0; color: #27ae60;">✅ صندلی‌های انتخاب شده:</h4>';
+        echo '<div id="vsbbm-seats-list"></div>';
+        echo '<button type="button" onclick="vsbbmAddToCart()" style="background: #3498db; color: white; border: none; padding: 12px 25px; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 15px;">🛒 افزودن به سبد خرید</button>';
+        echo '</div>';
+
+        echo '<input type="hidden" id="vsbbm_passenger_data" name="vsbbm_passenger_data" value="">';
+        echo '</div>';
+
+        self::output_seat_styles();
+        self::output_seat_scripts();
+    }
+
+    /**
+     * Display standard layout (fallback)
+     */
+    private static function display_standard_layout($product_id, $layout_type) {
         $available_seats = self::get_seat_numbers($product_id);
         $reserved_seats = self::get_reserved_seats($product_id) ?: array();
 
         echo '<div class="vsbbm-seat-selection" style="background: #fff; padding: 25px; margin: 30px 0; border: 2px solid #e0e0e0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">';
         echo '<h3 style="color: #2c3e50; margin-bottom: 20px; text-align: center;">🎫 انتخاب صندلی</h3>';
 
-        echo '<div class="vsbbm-seat-layout" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 12px; margin: 25px 0;">';
+        $layout_css = self::get_layout_css($layout_type);
+        echo '<div class="vsbbm-seat-layout" style="display: grid; ' . $layout_css . ' gap: 12px; margin: 25px 0; max-width: 800px; margin: 25px auto;">';
+
         foreach ($available_seats as $seat) {
+            $seat_type = self::get_seat_type($seat, $layout_type);
             $is_reserved = in_array($seat, $reserved_seats);
             $seat_class = $is_reserved ? 'reserved' : 'available';
-            echo '<div class="vsbbm-seat vsbbm-seat-' . $seat_class . '" data-seat="' . $seat . '" style="padding: 15px 10px; text-align: center; border-radius: 8px; cursor: ' . ($is_reserved ? 'not-allowed' : 'pointer') . '; transition: all 0.3s ease; font-weight: bold;" onclick="vsbbmSelectSeat(' . $seat . ', this)">';
-            echo $is_reserved ? '⛔' : '💺';
-            echo '<br><span style="font-size: 12px;">' . $seat . '</span>';
-            echo '</div>';
+
+            if ($seat_type === 'space' || $seat_type === 'aisle' || $seat_type === 'stairs') {
+                // Non-selectable elements
+                $icon = '';
+                switch ($seat_type) {
+                    case 'aisle': $icon = '🚶'; break;
+                    case 'space': $icon = '⬜'; break;
+                    case 'stairs': $icon = '🪜'; break;
+                }
+                echo '<div class="vsbbm-seat vsbbm-seat-' . $seat_type . '" style="padding: 15px 10px; text-align: center; border-radius: 8px; font-weight: bold; background: #f8f9fa; border: 1px solid #dee2e6;">' . $icon . '</div>';
+            } else {
+                // Selectable seats
+                $type_class = $seat_type ? ' vsbbm-seat-' . $seat_type : '';
+                echo '<div class="vsbbm-seat vsbbm-seat-' . $seat_class . $type_class . '" data-seat="' . $seat . '" style="padding: 15px 10px; text-align: center; border-radius: 8px; cursor: ' . ($is_reserved ? 'not-allowed' : 'pointer') . '; transition: all 0.3s ease; font-weight: bold;" onclick="vsbbmSelectSeat(' . $seat . ', this)">';
+                echo $is_reserved ? '⛔' : '💺';
+                echo '<br><span style="font-size: 12px;">' . $seat . '</span>';
+                echo '</div>';
+            }
         }
         echo '</div>';
 
@@ -213,18 +344,37 @@ class VSBBM_Seat_Manager {
         echo '<input type="hidden" id="vsbbm_passenger_data" name="vsbbm_passenger_data" value="">';
         echo '</div>';
 
+        self::output_seat_styles();
+        self::output_seat_scripts();
+    }
+
+    /**
+     * Output seat selection styles
+     */
+    private static function output_seat_styles() {
         echo '<style>
         .vsbbm-seat-available { background: #27ae60; color: white; border: 2px solid #219652; }
         .vsbbm-seat-available:hover { background: #219652; transform: scale(1.05); }
         .vsbbm-seat-reserved { background: #e74c3c; color: white; border: 2px solid #c0392b; }
         .vsbbm-seat-selected { background: #f39c12 !important; border: 2px solid #e67e22 !important; transform: scale(1.1); }
+        .vsbbm-seat-window { box-shadow: 0 0 0 2px #3498db; }
+        .vsbbm-seat-vip { background: linear-gradient(45deg, #f39c12, #e67e22); border: 2px solid #d35400; }
+        .vsbbm-seat-aisle { background: #f8f9fa; border: 1px solid #dee2e6; cursor: default; }
+        .vsbbm-seat-space { background: transparent; border: none; cursor: default; }
+        .vsbbm-seat-stairs { background: #6c757d; color: white; border: 1px solid #5a6268; cursor: default; }
+        .vsbbm-seat-driver { background: #17a2b8; color: white; border: 1px solid #138496; cursor: default; }
         .single_add_to_cart_button, button[name="add-to-cart"], .quantity, .qty, input[name="quantity"] { display: none !important; }
         </style>';
+    }
 
+    /**
+     * Output seat selection scripts
+     */
+    private static function output_seat_scripts() {
         echo '<script>
         if (typeof window.selectedSeats === "undefined") window.selectedSeats = [];
         function vsbbmSelectSeat(seat, el) {
-            if (el.classList.contains("vsbbm-seat-reserved")) return;
+            if (el.classList.contains("vsbbm-seat-reserved") || el.classList.contains("vsbbm-seat-aisle") || el.classList.contains("vsbbm-seat-space")) return;
             const idx = window.selectedSeats.indexOf(seat);
             if (idx > -1) {
                 window.selectedSeats.splice(idx, 1);
