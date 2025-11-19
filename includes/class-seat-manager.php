@@ -23,7 +23,7 @@ class VSBBM_Seat_Manager {
     // ثبت هندلرهای AJAX
     self::register_ajax_handlers();
 
-    // هوک نمایش انتخاب صندلی - فقط یک بار
+    // هوک نمایش انتخاب صندلی - تغییر به هوک قابل اطمینان‌تر
     add_action('woocommerce_single_product_summary', array(__CLASS__, 'display_seat_selection'), 25);
 
     // فیلتر برای دیباگ
@@ -70,6 +70,23 @@ class VSBBM_Seat_Manager {
             'value' => $product_object->get_meta('_vsbbm_sale_end_date')
         ));
         
+        // تنظیمات چیدمان صندلی‌ها
+        woocommerce_wp_select(array(
+            'id' => '_vsbbm_seat_layout',
+            'label' => 'نوع چیدمان صندلی‌ها',
+            'description' => 'انتخاب نوع چیدمان صندلی‌های اتوبوس',
+            'options' => array(
+                'grid' => 'گرید ساده (پیش‌فرض)',
+                '2-2-2' => '۲-۲-۲ (استاندارد)',
+                '2-3-2' => '۲-۳-۲ (گسترده)',
+                '1-2' => '۱-۲ (تک-دوبل)',
+                'vip' => 'VIP (لوکس)',
+                'with-stairs' => 'با راه پله عقب',
+                'custom' => 'سفارشی (ویرایشگر بصری)'
+            ),
+            'value' => $product_object->get_meta('_vsbbm_seat_layout') ?: 'grid'
+        ));
+
         // نمایش وضعیت کنونی
         $current_status = self::get_product_availability_status($product_object->get_id());
         echo '<div class="vsbbm-status-display">';
@@ -78,7 +95,7 @@ class VSBBM_Seat_Manager {
             echo '<p class="description">' . $current_status['description'] . '</p>';
         }
         echo '</div>';
-        
+
         echo '</div>';
     }
     
@@ -102,6 +119,11 @@ class VSBBM_Seat_Manager {
         } else {
             delete_post_meta($post_id, '_vsbbm_sale_end_date');
         }
+
+        // ذخیره نوع چیدمان صندلی‌ها
+        if (isset($_POST['_vsbbm_seat_layout'])) {
+            update_post_meta($post_id, '_vsbbm_seat_layout', sanitize_text_field($_POST['_vsbbm_seat_layout']));
+        }
     }
     
     public static function add_seat_meta_box() {
@@ -121,40 +143,26 @@ class VSBBM_Seat_Manager {
     public static function render_seat_meta_box($post) {
         $seat_numbers = get_post_meta($post->ID, '_vsbbm_seat_numbers', true);
         $seat_numbers = $seat_numbers ?: range(1, 32);
-        ?>
-        <div class="vsbbm-seat-settings">
-            <p>
-                <label for="vsbbm_seat_numbers"><strong>شماره صندلی‌های موجود:</strong></label>
-                <input type="text" name="vsbbm_seat_numbers" id="vsbbm_seat_numbers" 
-                       value="<?php echo esc_attr(implode(',', (array)$seat_numbers)); ?>" 
-                       class="large-text">
-                <br>
-                <span class="description">شماره صندلی‌ها را با کاما جدا کنید. مثال: 1,2,3,4,5,...,32</span>
-            </p>
-            
-            <h4>پیش‌نمایش چیدمان صندلی‌ها:</h4>
-            <div class="vsbbm-seat-preview">
-                <?php
-                $rows = 4;
-                $cols = 8;
-                $i = 0;
-                echo '<table style="border-collapse: collapse; margin: 10px 0; background: white; padding: 10px; border-radius: 5px;">';
-                for ($r = 0; $r < $rows; $r++) {
-                    echo '<tr>';
-                    for ($c = 0; $c < $cols; $c++) {
-                        $i++;
-                        $is_available = in_array($i, $seat_numbers);
-                        echo '<td style="border: 1px solid #ccc; padding: 8px; text-align: center; width: 40px; height: 40px; background: ' . ($is_available ? '#e8f5e8' : '#f5f5f5') . ';">';
-                        echo $is_available ? '<strong>' . $i . '</strong>' : '<span style="color: #999;">×</span>';
-                        echo '</td>';
-                    }
-                    echo '</tr>';
-                }
-                echo '</table>';
-                ?>
-            </div>
-        </div>
-        <?php
+        $layout = get_post_meta($post->ID, '_vsbbm_seat_layout', true) ?: 'grid';
+
+        echo '<div class="vsbbm-seat-settings">';
+        echo '<p><label for="vsbbm_seat_numbers"><strong>شماره صندلی‌های موجود:</strong></label>';
+        echo '<input type="text" name="vsbbm_seat_numbers" id="vsbbm_seat_numbers" value="' . esc_attr(implode(',', (array)$seat_numbers)) . '" class="large-text">';
+        echo '<br><span class="description">شماره صندلی‌ها را با کاما جدا کنید. مثال: 1,2,3,4,5,...,32</span></p>';
+
+        echo '<h4>پیش‌نمایش چیدمان صندلی‌ها (' . esc_html($layout) . '):</h4>';
+        echo '<div class="vsbbm-seat-preview" style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin-top: 10px;">';
+
+        if ($layout === 'custom') {
+            echo '<div style="background: #e8f5e8; padding: 20px; border-radius: 8px; border: 2px dashed #27ae60;">';
+            echo '<h4 style="color: #27ae60; margin: 0 0 15px 0;">🎨 چیدمان سفارشی</h4>';
+            echo '<p style="margin: 0; color: #666; font-size: 14px;">این ویژگی به زودی اضافه خواهد شد!</p>';
+            echo '</div>';
+        } else {
+            echo '<p>پیش‌نمایش چیدمان در اینجا نمایش داده می‌شود.</p>';
+        }
+
+        echo '</div></div>';
     }
     
     public static function save_seat_numbers($post_id) {
@@ -172,554 +180,83 @@ class VSBBM_Seat_Manager {
      */
     
     public static function display_seat_selection() {
-    global $product;
+        global $product;
 
-    error_log('VSBBM DEBUG: display_seat_selection called');
-
-    if (!$product) {
-        error_log('VSBBM DEBUG: No product object found');
-        return;
-    }
-
-    $product_id = $product->get_id();
-    error_log('VSBBM DEBUG: Product ID: ' . $product_id);
-
-    if (!self::is_seat_booking_enabled($product_id)) {
-        error_log('VSBBM DEBUG: Seat booking not enabled for product ' . $product_id);
-        return;
-    }
-
-    error_log('VSBBM DEBUG: Seat booking enabled, displaying selector');
-    
-    $available_seats = self::get_seat_numbers($product_id);
-    $reserved_seats = self::get_reserved_seats($product_id);
-    $reserved_seats = $reserved_seats ?: array();
-    
-    ?>
-    <div class="vsbbm-seat-selection" data-product-id="<?php echo esc_attr($product_id); ?>" style="background: #fff; padding: 25px; margin: 30px 0; border: 2px solid #e0e0e0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-        <h3 style="color: #2c3e50; margin-bottom: 20px; text-align: center;">🎫 انتخاب صندلی</h3>
-        
-        <div class="vsbbm-seat-layout" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 12px; margin: 25px 0;">
-            <?php foreach ($available_seats as $seat): 
-                $is_reserved = in_array($seat, $reserved_seats);
-                $seat_class = $is_reserved ? 'reserved' : 'available';
-            ?>
-                <div class="vsbbm-seat vsbbm-seat-<?php echo $seat_class; ?>" 
-                     data-seat="<?php echo $seat; ?>"
-                     style="padding: 15px 10px; text-align: center; border-radius: 8px; cursor: <?php echo $is_reserved ? 'not-allowed' : 'pointer'; ?>; transition: all 0.3s ease; font-weight: bold;"
-                     onclick="vsbbmSelectSeat(<?php echo $seat; ?>, this)">
-                    <?php echo $is_reserved ? '⛔' : '💺'; ?>
-                    <br>
-                    <span style="font-size: 12px;"><?php echo $seat; ?></span>
-                </div>
-            <?php endforeach; ?>
-        </div>
-        
-        <!-- نمایش صندلی‌های انتخاب شده -->
-        <div id="vsbbm-selected-seats" style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0; <?php echo empty($selected_seats) ? 'display: none;' : ''; ?>">
-            <h4 style="margin: 0 0 15px 0; color: #27ae60;">✅ صندلی‌های انتخاب شده:</h4>
-            <div id="vsbbm-seats-list" style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
-                <!-- صندلی‌های انتخاب شده اینجا نمایش داده می‌شوند -->
-            </div>
-            
-            <!-- فرم اطلاعات مسافر -->
-            <div id="vsbbm-passenger-form" style="display: none;">
-                <h5 style="margin: 15px 0 10px 0; color: #2c3e50;">📝 اطلاعات مسافران</h5>
-                <div id="vsbbm-passenger-fields">
-                    <!-- فیلدهای اطلاعات مسافر اینجا اضافه می‌شوند -->
-                </div>
-                
-                <button type="button" onclick="vsbbmAddToCart()" style="background: #3498db; color: white; border: none; padding: 12px 25px; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 15px;">
-                    🛒 افزودن به سبد خرید
-                </button>
-            </div>
-        </div>
-        
-        <!-- Hidden field برای ارسال داده‌ها -->
-        <input type="hidden" id="vsbbm_passenger_data" name="vsbbm_passenger_data" value="">
-        
-        <!-- راهنما -->
-        <div style="display: flex; justify-content: center; gap: 20px; margin-top: 20px; font-size: 14px; flex-wrap: wrap;">
-            <div style="display: flex; align-items: center; gap: 5px;">
-                <div style="width: 20px; height: 20px; background: #27ae60; border-radius: 4px;"></div>
-                <span>قابل انتخاب</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 5px;">
-                <div style="width: 20px; height: 20px; background: #e74c3c; border-radius: 4px;"></div>
-                <span>رزرو شده</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 5px;">
-                <div style="width: 20px; height: 20px; background: #f39c12; border-radius: 4px;"></div>
-                <span>انتخاب شده</span>
-            </div>
-        </div>
-    </div>
-
-    <style>
-    .vsbbm-seat-available {
-        background: #27ae60;
-        color: white;
-        border: 2px solid #219652;
-    }
-    
-    .vsbbm-seat-available:hover {
-        background: #219652;
-        transform: scale(1.05);
-    }
-    
-    .vsbbm-seat-reserved {
-        background: #e74c3c;
-        color: white;
-        border: 2px solid #c0392b;
-    }
-    
-    .vsbbm-seat-selected {
-        background: #f39c12 !important;
-        border: 2px solid #e67e22 !important;
-        transform: scale(1.1);
-    }
-    
-    .vsbbm-seat-badge {
-        background: #e74c3c;
-        color: white;
-        padding: 5px 10px;
-        border-radius: 15px;
-        font-size: 12px;
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-    }
-    
-    .vsbbm-passenger-field {
-        background: #f8f9fa;
-        padding: 15px;
-        border-radius: 8px;
-        margin: 10px 0;
-        border: 1px solid #dee2e6;
-    }
-
-    /* مخفی کردن دکمه اصلی ووکامرس و انتخابگر تعداد وقتی انتخاب صندلی فعال است */
-    .single_add_to_cart_button,
-    button[name="add-to-cart"],
-    .quantity,
-    .qty,
-    input[name="quantity"] {
-        display: none !important;
-    }
-    </style>
-
-    <script>
-    if (typeof window.selectedSeats === 'undefined') {
-        window.selectedSeats = [];
-    }
-    let selectedSeats = window.selectedSeats;
-
-    function vsbbmSelectSeat(seatNumber, element) {
-        // اگر صندلی رزرو شده باشد، کاری نکن
-        if (element.classList.contains('vsbbm-seat-reserved')) {
-            return;
-        }
-        
-        const seatIndex = selectedSeats.indexOf(seatNumber);
-        
-        // اگر صندلی قبلاً انتخاب شده، حذف کن
-        if (seatIndex > -1) {
-            selectedSeats.splice(seatIndex, 1);
-            element.classList.remove('vsbbm-seat-selected');
-        } else {
-            // اضافه کردن صندلی جدید
-            selectedSeats.push(seatNumber);
-            element.classList.add('vsbbm-seat-selected');
-        }
-        
-        updateSelectedSeatsDisplay();
-        updatePassengerForm();
-        
-        // ذخیره در localStorage
-        localStorage.setItem('vsbbm_selected_seats', JSON.stringify(window.selectedSeats));
-    }
-    
-    function updateSelectedSeatsDisplay() {
-        const seatsList = document.getElementById('vsbbm-seats-list');
-        const selectedContainer = document.getElementById('vsbbm-selected-seats');
-
-        seatsList.innerHTML = '';
-
-        if (window.selectedSeats.length === 0) {
-            selectedContainer.style.display = 'none';
+        if (!$product || !self::is_seat_booking_enabled($product->get_id())) {
             return;
         }
 
-        selectedContainer.style.display = 'block';
+        $product_id = $product->get_id();
+        $available_seats = self::get_seat_numbers($product_id);
+        $reserved_seats = self::get_reserved_seats($product_id) ?: array();
 
-        window.selectedSeats.forEach(seat => {
-            const seatBadge = document.createElement('div');
-            seatBadge.className = 'vsbbm-seat-badge';
-            seatBadge.innerHTML = `💺 صندلی ${seat} <span style="cursor: pointer; margin-left: 5px;" onclick="vsbbmRemoveSeat(${seat})">❌</span>`;
-            seatsList.appendChild(seatBadge);
-        });
-    }
-    
-    function vsbbmRemoveSeat(seatNumber) {
-        const seatIndex = selectedSeats.indexOf(seatNumber);
-        if (seatIndex > -1) {
-            selectedSeats.splice(seatIndex, 1);
-            const seatElement = document.querySelector(`[data-seat="${seatNumber}"]`);
-            if (seatElement) {
-                seatElement.classList.remove('vsbbm-seat-selected');
-            }
-            updateSelectedSeatsDisplay();
-            updatePassengerForm();
-            localStorage.setItem('vsbbm_selected_seats', JSON.stringify(window.selectedSeats));
-        }
-    }
-    
-    function updatePassengerForm() {
-    const passengerForm = document.getElementById('vsbbm-passenger-form');
-    const passengerFields = document.getElementById('vsbbm-passenger-fields');
+        echo '<div class="vsbbm-seat-selection" style="background: #fff; padding: 25px; margin: 30px 0; border: 2px solid #e0e0e0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">';
+        echo '<h3 style="color: #2c3e50; margin-bottom: 20px; text-align: center;">🎫 انتخاب صندلی</h3>';
 
-    if (window.selectedSeats.length === 0) {
-        passengerForm.style.display = 'none';
-        return;
-    }
+        echo '<div class="vsbbm-seat-layout" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 12px; margin: 25px 0;">';
+        foreach ($available_seats as $seat) {
+            $is_reserved = in_array($seat, $reserved_seats);
+            $seat_class = $is_reserved ? 'reserved' : 'available';
+            echo '<div class="vsbbm-seat vsbbm-seat-' . $seat_class . '" data-seat="' . $seat . '" style="padding: 15px 10px; text-align: center; border-radius: 8px; cursor: ' . ($is_reserved ? 'not-allowed' : 'pointer') . '; transition: all 0.3s ease; font-weight: bold;" onclick="vsbbmSelectSeat(' . $seat . ', this)">';
+            echo $is_reserved ? '⛔' : '💺';
+            echo '<br><span style="font-size: 12px;">' . $seat . '</span>';
+            echo '</div>';
+        }
+        echo '</div>';
 
-    passengerForm.style.display = 'block';
-    passengerFields.innerHTML = '<p style="text-align: center; padding: 20px;">در حال بارگذاری فرم...</p>';
-    
-    // دریافت فیلدها از طریق AJAX
-    fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: 'action=vsbbm_get_passenger_fields&nonce=<?php echo wp_create_nonce('vsbbm_frontend_nonce'); ?>'
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            renderPassengerFields(data.data);
-        } else {
-            throw new Error('Failed to load fields');
-        }
-    })
-    .catch(error => {
-        console.error('Error loading passenger fields:', error);
-        // استفاده از فیلدهای پیش‌فرض در صورت خطا
-        const defaultFields = [
-            {type: 'text', label: 'نام کامل', required: true, placeholder: 'نام و نام خانوادگی'},
-            {type: 'text', label: 'کد ملی', required: true, placeholder: 'کد ملی ۱۰ رقمی'},
-            {type: 'tel', label: 'شماره تماس', required: true, placeholder: '09xxxxxxxxx'}
-        ];
-        renderPassengerFields(defaultFields);
-    });
-    
-    function renderPassengerFields(fieldsConfig) {
-    passengerFields.innerHTML = '';
-    
-    const tableContainer = document.createElement('div');
-    tableContainer.innerHTML = `
-        <div style="background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 5px rgba(0,0,0,0.1); margin: 15px 0;">
-            <div style="background: #2c3e50; color: white; padding: 12px 15px;">
-                <h4 style="margin: 0; font-size: 14px; display: flex; align-items: center; gap: 8px;">
-                    <span>📋</span> اطلاعات مسافران (${window.selectedSeats.length} نفر)
-                </h4>
-            </div>
-            
-            <div style="overflow-x: auto; font-size: 12px;">
-                <table style="width: 100%; border-collapse: collapse; min-width: 400px;" class="passenger-table">
-                    <thead>
-                        <tr style="background: #f8f9fa;">
-                            <th style="padding: 8px 10px; text-align: center; border-bottom: 1px solid #dee2e6; width: 60px; font-size: 11px;">صندلی</th>
-                            ${fieldsConfig.map(field => {
-                                const isAddress = field.label.includes('آدرس');
-                                const colWidth = isAddress ? '200px' : '120px';
-                                return `
-                                    <th style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #dee2e6; font-size: 11px; width: ${colWidth};">
-                                        ${field.label} ${field.required ? '<span style="color: #e74c3c;">*</span>' : ''}
-                                    </th>
-                                `;
-                            }).join('')}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${window.selectedSeats.map(seat => `
-                            <tr style="border-bottom: 1px solid #f0f0f0;">
-                                <td style="padding: 6px 8px; text-align: center; background: #f8f9fa; font-weight: bold; font-size: 11px;">
-                                    ${seat}
-                                </td>
-                                ${fieldsConfig.map(field => {
-                                    const fieldId = `passenger_${field.label.replace(/\s+/g, '_')}_${seat}`;
-                                    const isRequired = field.required ? 'required' : '';
-                                    const isAddress = field.label.includes('آدرس');
-                                    
-                                    if (field.type === 'select') {
-                                        const options = field.options ? field.options.split(',').map(opt => opt.trim()) : [];
-                                        return `
-                                            <td style="padding: 4px 6px;">
-                                                <select id="${fieldId}" name="${fieldId}" 
-                                                        style="width: 100%; padding: 4px 6px; border: 1px solid #ddd; border-radius: 3px; background: white; font-size: 11px;" 
-                                                        ${isRequired}>
-                                                    <option value="">--</option>
-                                                    ${options.map(option => 
-                                                        `<option value="${option}">${option}</option>`
-                                                    ).join('')}
-                                                </select>
-                                            </td>
-                                        `;
-                                    } else if (isAddress) {
-                                        // فیلد آدرس بزرگتر
-                                        return `
-                                            <td style="padding: 4px 6px;">
-                                                <textarea id="${fieldId}" name="${fieldId}" 
-                                                          placeholder="${field.placeholder || ''}"
-                                                          style="width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 3px; font-size: 11px; resize: vertical; min-height: 40px;"
-                                                          ${isRequired}></textarea>
-                                            </td>
-                                        `;
-                                    } else {
-                                        // فیلدهای معمولی کوچک
-                                        return `
-                                            <td style="padding: 4px 6px;">
-                                                <input type="${field.type}" 
-                                                       id="${fieldId}" 
-                                                       name="${fieldId}" 
-                                                       placeholder="${field.placeholder || ''}"
-                                                       style="width: 100%; padding: 4px 6px; border: 1px solid #ddd; border-radius: 3px; font-size: 11px;"
-                                                       ${isRequired}>
-                                            </td>
-                                        `;
-                                    }
-                                }).join('')}
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-            
-            <div style="padding: 10px 15px; background: #f8f9fa; border-top: 1px solid #dee2e6; font-size: 11px; color: #666;">
-                <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
-                    <div style="display: flex; align-items: center; gap: 5px;">
-                        <div style="width: 12px; height: 12px; background: #e74c3c; border-radius: 2px;"></div>
-                        <span>فیلد اجباری</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 5px;">
-                        <div style="width: 12px; height: 12px; background: #2c3e50; border-radius: 2px;"></div>
-                        <span>${window.selectedSeats.length} صندلی انتخاب شده</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <style>
-        .passenger-table tr:hover {
-            background: #f5f5f5 !important;
-        }
-        .passenger-table input:focus,
-        .passenger-table select:focus,
-        .passenger-table textarea:focus {
-            border-color: #3498db !important;
-            outline: none;
-            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
-        }
-        .passenger-table input, 
-        .passenger-table select {
-            height: 28px;
-        }
-        .passenger-table textarea {
-            min-height: 40px;
-        }
-        </style>
-    `;
-    
-    passengerFields.appendChild(tableContainer);
-}
-}
-    function vsbbmAddToCart() {
-        if (window.selectedSeats.length === 0) {
-            alert('لطفاً حداقل یک صندلی انتخاب کنید.');
-            return false;
-        }
-        
-        // جمع‌آوری اطلاعات مسافران از جدول
-        const passengerData = [];
-        let allFieldsValid = true;
+        echo '<div id="vsbbm-selected-seats" style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0; display: none;">';
+        echo '<h4 style="margin: 0 0 15px 0; color: #27ae60;">✅ صندلی‌های انتخاب شده:</h4>';
+        echo '<div id="vsbbm-seats-list"></div>';
+        echo '<button type="button" onclick="vsbbmAddToCart()" style="background: #3498db; color: white; border: none; padding: 12px 25px; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 15px;">🛒 افزودن به سبد خرید</button>';
+        echo '</div>';
 
-        window.selectedSeats.forEach(seat => {
-            const passenger = {};
-            
-            // دریافت تمام فیلدهای این مسافر
-            const fieldInputs = document.querySelectorAll(`[name*="_${seat}"]`);
-            
-            fieldInputs.forEach(input => {
-                const fieldName = input.name.match(/passenger_(.+?)_\d+/);
-                if (fieldName && fieldName[1]) {
-                    const key = fieldName[1];
-                    passenger[key] = input.value.trim();
-                    
-                    // بررسی فیلدهای اجباری
-                    if (input.hasAttribute('required') && !input.value.trim()) {
-                        allFieldsValid = false;
-                        input.style.borderColor = '#e74c3c';
-                        input.style.backgroundColor = '#ffe6e6';
-                    } else {
-                        input.style.borderColor = '';
-                        input.style.backgroundColor = '';
-                    }
-                }
-            });
-            
-            passenger.seat_number = seat;
-            passengerData.push(passenger);
-        });
-        
-        // اگر فیلدهای اجباری پر نشده
-        if (!allFieldsValid) {
-            alert('❌ لطفاً تمام فیلدهای اجباری (مشخص شده با *) را پر کنید.');
-            return false;
-        }
-        
-        // بررسی کدهای ملی تکراری
-        const nationalCodes = passengerData.map(p => p['نام_کامل'] || p['کد_ملی']).filter(Boolean);
-        const uniqueCodes = new Set(nationalCodes);
-        if (nationalCodes.length !== uniqueCodes.size) {
-            alert('❌ کد ملی تکراری وجود دارد. هر مسافر باید کد ملی منحصر به فرد داشته باشد.');
-            return false;
-        }
-        
-        // ذخیره در localStorage برای backup
-        localStorage.setItem('vsbbm_passenger_data', JSON.stringify(passengerData));
-        localStorage.setItem('vsbbm_selected_seats', JSON.stringify(window.selectedSeats));
-        
-        console.log('✅ داده‌های مسافران:', passengerData);
-        
-        // استفاده از AJAX برای افزودن به سبد خرید
-        console.log('📤 استفاده از AJAX برای افزودن به سبد خرید');
-        
-        // پیدا کردن product ID از data attribute
-        const seatContainer = document.querySelector('.vsbbm-seat-selection');
-        const productId = seatContainer ? seatContainer.getAttribute('data-product-id') : null;
-        
-        if (!productId) {
-            alert('⚠️ خطا: شناسه محصول یافت نشد.');
-            console.error('Product ID not found. Seat container:', seatContainer);
-            return false;
-        }
-        
-        console.log('✅ Product ID:', productId);
-        
-        // نمایش loading
-        const buttonText = document.querySelector('button[onclick*="vsbbmAddToCart"]');
-        if (buttonText) {
-            buttonText.disabled = true;
-            buttonText.innerHTML = '⏳ در حال افزودن...';
-        }
-        
-        console.log('📤 Sending AJAX request...');
-        console.log('📦 Data:', {
-            action: 'vsbbm_add_to_cart',
-            product_id: productId,
-            quantity: window.selectedSeats.length,
-            passengers: passengerData.length
-        });
-        
-        // ارسال درخواست AJAX
-        fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({
-                action: 'vsbbm_add_to_cart',
-                nonce: '<?php echo wp_create_nonce('vsbbm_frontend_nonce'); ?>',
-                product_id: productId,
-                quantity: window.selectedSeats.length,
-                vsbbm_passenger_data: JSON.stringify(passengerData)
-            })
-        })
-        .then(response => {
-            console.log('📨 Response status:', response.status);
-            console.log('📨 Response ok:', response.ok);
-            
-            // بررسی اگر response ok نیست
-            if (!response.ok) {
-                throw new Error('HTTP error! status: ' + response.status);
-            }
-            
-            return response.text(); // اول به text تبدیل کنیم
-        })
-        .then(text => {
-            console.log('📨 Raw response:', text);
-            
-            // حالا تلاش برای parse کردن JSON
-            try {
-                const data = JSON.parse(text);
-                console.log('📨 Parsed data:', data);
-                return data;
-            } catch (e) {
-                console.error('❌ JSON parse error:', e);
-                console.error('❌ Response was:', text);
-                throw new Error('Invalid JSON response');
-            }
-        })
-        .then(data => {
-            if (data.success) {
-                console.log('✅ Success!');
-                alert('✅ ' + window.selectedSeats.length + ' صندلی به سبد خرید اضافه شد!');
-                // رفرش صفحه یا redirect به cart
-                window.location.href = '<?php echo wc_get_cart_url(); ?>';
+        echo '<input type="hidden" id="vsbbm_passenger_data" name="vsbbm_passenger_data" value="">';
+        echo '</div>';
+
+        echo '<style>
+        .vsbbm-seat-available { background: #27ae60; color: white; border: 2px solid #219652; }
+        .vsbbm-seat-available:hover { background: #219652; transform: scale(1.05); }
+        .vsbbm-seat-reserved { background: #e74c3c; color: white; border: 2px solid #c0392b; }
+        .vsbbm-seat-selected { background: #f39c12 !important; border: 2px solid #e67e22 !important; transform: scale(1.1); }
+        .single_add_to_cart_button, button[name="add-to-cart"], .quantity, .qty, input[name="quantity"] { display: none !important; }
+        </style>';
+
+        echo '<script>
+        if (typeof window.selectedSeats === "undefined") window.selectedSeats = [];
+        function vsbbmSelectSeat(seat, el) {
+            if (el.classList.contains("vsbbm-seat-reserved")) return;
+            const idx = window.selectedSeats.indexOf(seat);
+            if (idx > -1) {
+                window.selectedSeats.splice(idx, 1);
+                el.classList.remove("vsbbm-seat-selected");
             } else {
-                console.error('❌ Server returned error:', data);
-                alert('❌ خطا: ' + (data.data || 'مشکلی پیش آمده'));
-                if (buttonText) {
-                    buttonText.disabled = false;
-                    buttonText.innerHTML = '🛒 افزودن به سبد خرید';
-                }
+                window.selectedSeats.push(seat);
+                el.classList.add("vsbbm-seat-selected");
             }
-        })
-        .catch(error => {
-            console.error('❌ Catch error:', error);
-            alert('❌ خطا در ارتباط با سرور: ' + error.message);
-            if (buttonText) {
-                buttonText.disabled = false;
-                buttonText.innerHTML = '🛒 افزودن به سبد خرید';
-            }
-        });
-        
-        return true;
-    }
-    
-    // مخفی کردن دکمه اصلی ووکامرس و انتخابگر تعداد
-    document.addEventListener('DOMContentLoaded', function() {
-        const wooButtons = document.querySelectorAll('.single_add_to_cart_button, button[name="add-to-cart"]');
-        wooButtons.forEach(button => {
-            button.style.display = 'none';
-        });
-
-        const quantityElements = document.querySelectorAll('.quantity, .qty, input[name="quantity"]');
-        quantityElements.forEach(element => {
-            element.style.display = 'none';
-        });
-    });
-
-    // بازیابی صندلی‌های انتخاب شده در صورت رفرش صفحه
-    document.addEventListener('DOMContentLoaded', function() {
-        const savedSeats = localStorage.getItem('vsbbm_selected_seats');
-        if (savedSeats) {
-            window.selectedSeats = JSON.parse(savedSeats);
-            selectedSeats = window.selectedSeats;
-            selectedSeats.forEach(seat => {
-                const seatElement = document.querySelector(`[data-seat="${seat}"]`);
-                if (seatElement && !seatElement.classList.contains('vsbbm-seat-reserved')) {
-                    seatElement.classList.add('vsbbm-seat-selected');
-                }
-            });
-            updateSelectedSeatsDisplay();
-            updatePassengerForm();
+            updateDisplay();
         }
-    });
-    </script>
-    <?php
-}
+        function updateDisplay() {
+            const container = document.getElementById("vsbbm-selected-seats");
+            const list = document.getElementById("vsbbm-seats-list");
+            list.innerHTML = "";
+            if (window.selectedSeats.length === 0) {
+                container.style.display = "none";
+                return;
+            }
+            container.style.display = "block";
+            window.selectedSeats.forEach(seat => {
+                list.innerHTML += "<span style=\"background: #e74c3c; color: white; padding: 5px 10px; border-radius: 15px; margin: 5px; display: inline-block;\">💺 " + seat + "</span>";
+            });
+        }
+        function vsbbmAddToCart() {
+            if (window.selectedSeats.length === 0) {
+                alert("لطفاً حداقل یک صندلی انتخاب کنید.");
+                return;
+            }
+            alert("این ویژگی به زودی اضافه خواهد شد!");
+        }
+        </script>';
+    }
     
     
     /**
@@ -835,6 +372,77 @@ class VSBBM_Seat_Manager {
         $cache_manager = VSBBM_Cache_Manager::get_instance();
         return $cache_manager->get_reserved_seats($product_id);
     }
+
+    /**
+     * تعیین نوع صندلی بر اساس چیدمان
+     */
+    public static function get_seat_type($seat_number, $layout = 'grid') {
+        switch ($layout) {
+            case '2-2-2':
+                // چیدمان: صندلی1 - صندلی2 - راهرو - صندلی3 - صندلی4
+                $position = ($seat_number - 1) % 5;
+                if ($position == 2) return 'aisle'; // راهرو
+                return $position < 2 ? 'window' : 'aisle-seat'; // پنجره یا کنار راهرو
+                break;
+
+            case '2-3-2':
+                // چیدمان: صندلی1 - صندلی2 - راهرو - صندلی3 - صندلی4 - صندلی5
+                $position = ($seat_number - 1) % 6;
+                if ($position == 2) return 'aisle'; // راهرو
+                if ($position < 2) return 'window'; // پنجره
+                if ($position > 2) return 'middle'; // وسط
+                return 'aisle-seat'; // کنار راهرو
+                break;
+
+            case '1-2':
+                // چیدمان: صندلی1 - فضای خالی - صندلی2 - صندلی3
+                $position = ($seat_number - 1) % 4;
+                if ($position == 1) return 'space'; // فضای خالی
+                if ($position == 0) return 'window'; // تک صندلی سمت چپ
+                return 'aisle-seat'; // دو صندلی سمت راست
+                break;
+
+            case 'vip':
+                // چیدمان VIP: صندلی1 - فضای خالی - صندلی2
+                $position = ($seat_number - 1) % 3;
+                if ($position == 1) return 'space'; // فضای خالی
+                return 'vip'; // صندلی VIP
+                break;
+
+            case 'with-stairs':
+                // چیدمان با راه پله: صندلی‌ها + فضای خالی در انتها
+                $total_seats = count(get_post_meta(get_the_ID(), '_vsbbm_seat_numbers', true) ?: range(1, 32));
+                if ($seat_number > $total_seats - 2) return 'stairs'; // دو صندلی آخر = راه پله
+                // در غیر این صورت از چیدمان 2-2-2 استفاده کن
+                $position = ($seat_number - 1) % 5;
+                if ($position == 2) return 'aisle';
+                return $position < 2 ? 'window' : 'aisle-seat';
+                break;
+
+            default:
+                return 'standard'; // گرید ساده
+        }
+    }
+
+    /**
+     * دریافت CSS Grid برای نوع چیدمان
+     */
+    public static function get_layout_css($layout) {
+        switch ($layout) {
+            case '2-2-2':
+                return 'grid-template-columns: 1fr 1fr 40px 1fr 1fr;';
+            case '2-3-2':
+                return 'grid-template-columns: 1fr 1fr 40px 1fr 1fr 1fr;';
+            case '1-2':
+                return 'grid-template-columns: 1fr 60px 1fr 1fr;';
+            case 'vip':
+                return 'grid-template-columns: 1fr 80px 1fr; gap: 30px;';
+            case 'with-stairs':
+                return 'grid-template-columns: 1fr 1fr 40px 1fr 1fr;'; // مشابه 2-2-2
+            default:
+                return 'grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));';
+        }
+    }
     
     /**
      * فیلتر بررسی دسترسی محصول
@@ -934,161 +542,7 @@ class VSBBM_Seat_Manager {
 
     error_log('🎯 VSBBM_Seat_Manager: all hooks registered');
 }
-
-}
-
-}
-
-}
-
-}
-
-}
-
-}
-
-}
     */
-/**
- * افزودن صندلی‌های انتخاب شده به سبد خرید از طریق AJAX
- */
-public static function add_to_cart_ajax() {
-    // فعال‌سازی فشرده‌سازی خروجی
-    if (!headers_sent()) {
-        if (isset($_SERVER['HTTP_ACCEPT_ENCODING']) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== false) {
-            ob_start('ob_gzhandler');
-        }
-    }
-
-    // بررسی nonce
-    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'vsbbm_frontend_nonce')) {
-        wp_send_json_error('امنیت درخواست تایید نشد');
-        return;
-    }
-
-    // Debug log
-    error_log('🔵 VSBBM AJAX: add_to_cart_ajax called');
-    error_log('🔵 POST data: ' . print_r($_POST, true));
-
-    // بررسی داده‌ها
-    if (empty($_POST['product_id']) || empty($_POST['vsbbm_passenger_data'])) {
-        error_log('🔴 VSBBM AJAX: Missing data');
-        wp_send_json_error('اطلاعات ناقص است');
-        return;
-    }
-    
-    $product_id = intval($_POST['product_id']);
-    $quantity = isset($_POST['quantity']) ? intval($_POST['quantity']) : 1;
-    $passenger_data_json = wp_unslash($_POST['vsbbm_passenger_data']);
-    
-    error_log('🔵 VSBBM AJAX: Product ID = ' . $product_id);
-    error_log('🔵 VSBBM AJAX: Quantity = ' . $quantity);
-    
-    // بررسی فعال بودن رزرو صندلی
-    $is_enabled = self::is_seat_booking_enabled($product_id);
-    error_log('🔵 VSBBM AJAX: Is seat booking enabled? ' . ($is_enabled ? 'YES' : 'NO'));
-    
-    // بررسی مستقیم meta
-    $meta_value = get_post_meta($product_id, '_vsbbm_enable_seat_booking', true);
-    error_log('🔵 VSBBM AJAX: Meta value = ' . $meta_value);
-    
-    if (!$is_enabled) {
-        error_log('🔴 VSBBM AJAX: Seat booking NOT enabled for product ' . $product_id);
-        wp_send_json_error('رزرو صندلی برای این محصول فعال نیست (Product ID: ' . $product_id . ', Meta: ' . $meta_value . ')');
-        return;
-    }
-
-    // Parse کردن داده‌های مسافر
-    $passenger_data = json_decode($passenger_data_json, true);
-    error_log('🔵 VSBBM AJAX: Passenger data decoded: ' . print_r($passenger_data, true));
-
-    if (!is_array($passenger_data) || empty($passenger_data)) {
-        error_log('🔴 VSBBM AJAX: Invalid passenger data');
-        wp_send_json_error('اطلاعات مسافران نامعتبر است');
-        return;
-    }
-
-    // رزرو صندلی‌ها قبل از افزودن به سبد خرید
-    $selected_seats = array_column($passenger_data, 'seat_number');
-    $reservation_result = VSBBM_Seat_Reservations::reserve_seats(
-        $product_id,
-        $selected_seats,
-        null, // order_id will be set later
-        get_current_user_id(),
-        $passenger_data
-    );
-
-    if (is_wp_error($reservation_result)) {
-        error_log('🔴 VSBBM AJAX: Seat reservation failed: ' . $reservation_result->get_error_message());
-        wp_send_json_error($reservation_result->get_error_message());
-        return;
-    }
-
-    error_log('🟢 VSBBM AJAX: Seats reserved successfully: ' . implode(', ', $reservation_result));
-    error_log('🔵 VSBBM AJAX: Passenger data decoded: ' . print_r($passenger_data, true));
-    
-    if (!is_array($passenger_data) || empty($passenger_data)) {
-        error_log('🔴 VSBBM AJAX: Invalid passenger data');
-        wp_send_json_error('اطلاعات مسافران نامعتبر است');
-        return;
-    }
-    
-    error_log('🔵 VSBBM AJAX: Starting validation...');
-
-    // Validation (استفاده از همان لاجیک class-booking-handler)
-    require_once VSBBM_PLUGIN_PATH . 'includes/class-booking-handler.php';
-
-    // شبیه‌سازی $_POST برای validation
-    $_POST['vsbbm_passenger_data'] = $passenger_data_json;
-
-    // اجرای validation
-    $validated = VSBBM_Booking_Handler::validate_booking(true, $product_id, $quantity);
-
-    error_log('🔵 VSBBM AJAX: Validation result: ' . ($validated ? 'PASSED' : 'FAILED'));
-
-    if (!$validated) {
-        // آزاد کردن رزروهای انجام شده در صورت خطا در validation
-        VSBBM_Seat_Reservations::cancel_reservation_by_order(null); // برای کاربر فعلی
-
-        // خطاهای validation از طریق wc_add_notice اضافه شدن
-        // دریافت پیام‌های خطا
-        $notices = wc_get_notices('error');
-        error_log('🔴 VSBBM AJAX: Validation errors: ' . print_r($notices, true));
-        $error_message = '';
-        if (!empty($notices)) {
-            foreach ($notices as $notice) {
-                $error_message .= $notice['notice'] . ' ';
-            }
-            wc_clear_notices();
-        }
-        wp_send_json_error($error_message ?: 'خطا در اعتبارسنجی');
-        return;
-    }
-
-    error_log('🔵 VSBBM AJAX: Validation passed, adding to cart...');
-    
-    // افزودن به سبد خرید
-    $cart_item_data = array(
-        'vsbbm_passengers' => $passenger_data
-    );
-    
-    error_log('🔵 VSBBM AJAX: Cart item data: ' . print_r($cart_item_data, true));
-    
-    $added = WC()->cart->add_to_cart($product_id, $quantity, 0, array(), $cart_item_data);
-    
-    error_log('🔵 VSBBM AJAX: Add to cart result: ' . ($added ? $added : 'FALSE'));
-    
-    if ($added) {
-        error_log('🟢 VSBBM AJAX: Successfully added to cart!');
-        wp_send_json_success(array(
-            'message' => sprintf('%d صندلی به سبد خرید اضافه شد', $quantity),
-            'cart_url' => wc_get_cart_url()
-        ));
-    } else {
-        error_log('🔴 VSBBM AJAX: Failed to add to cart');
-        wp_send_json_error('خطا در افزودن به سبد خرید');
-    }
-}
 
 
 /**
@@ -1132,7 +586,7 @@ public static function get_passenger_fields_ajax() {
  * ثبت هوک‌های AJAX
  */
 public static function register_ajax_handlers() {
-    error_log('🟡 VSBBM: Registering AJAX handlers...');
+    error_log(' VSBBM: Registering AJAX handlers...');
     
     add_action('wp_ajax_vsbbm_get_passenger_fields', array(__CLASS__, 'get_passenger_fields_ajax'));
     add_action('wp_ajax_nopriv_vsbbm_get_passenger_fields', array(__CLASS__, 'get_passenger_fields_ajax'));
@@ -1141,7 +595,7 @@ public static function register_ajax_handlers() {
     add_action('wp_ajax_vsbbm_add_to_cart', array(__CLASS__, 'add_to_cart_ajax'));
     add_action('wp_ajax_nopriv_vsbbm_add_to_cart', array(__CLASS__, 'add_to_cart_ajax'));
     
-    error_log('🟢 VSBBM: AJAX handlers registered successfully');
+    error_log(' VSBBM: AJAX handlers registered successfully');
 }
 
     /**
