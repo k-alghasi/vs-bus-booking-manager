@@ -1,8 +1,236 @@
 /* استایل‌های پایه برای انتخابگر صندلی */
 .vsbbm-seat-map {
     margin: 20px 0;
+    animation: fadeInUp 0.6s ease-out;
 }
 
 .vsbbm-seat {
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: scale(1);
+}
+
+.vsbbm-seat:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.vsbbm-seat.vsbbm-seat-selected {
+    animation: bounceIn 0.4s ease-out;
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(0, 123, 186, 0.3);
+}
+
+.vsbbm-seat.vsbbm-seat-available {
+    background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%);
+}
+
+.vsbbm-seat.vsbbm-seat-reserved {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    opacity: 0.6;
+}
+
+.vsbbm-seat.vsbbm-seat-available:hover {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    animation: pulse 1.5s infinite;
+}
+
+/* Keyframe animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes bounceIn {
+    0% {
+        transform: scale(0.3);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    70% {
+        transform: scale(0.9);
+    }
+    100% {
+        transform: scale(1.1);
+        opacity: 1;
+    }
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.4);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(39, 174, 96, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(39, 174, 96, 0);
+    }
+}
+
+/* Passenger form animations */
+.vsbbm-passenger-form {
+    animation: slideInRight 0.5s ease-out;
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Success message animation */
+.vsbbm-success-message {
+    animation: slideInDown 0.4s ease-out;
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    border: 1px solid #c3e6cb;
+    color: #155724;
+/* Responsive Design */
+@media (max-width: 768px) {
+    .vsbbm-seat-map {
+        margin: 10px 0;
+    }
+
+    .vsbbm-seat {
+        width: 35px;
+        height: 35px;
+        line-height: 35px;
+        font-size: 14px;
+    }
+
+    .vsbbm-seat:hover {
+        transform: scale(1.03);
+    }
+
+    .vsbbm-seat.vsbbm-seat-selected {
+        transform: scale(1.05);
+    }
+
+    .vsbbm-seat-legend {
+        flex-direction: column;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .legend-item {
+        font-size: 12px;
+    }
+
+    .seat-example {
+        width: 15px;
+        height: 15px;
+    }
+
+    .vsbbm-passenger-form {
+        padding: 15px;
+    }
+
+    .vsbbm-form-row {
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .vsbbm-form-row label {
+        min-width: auto;
+        font-size: 12px;
+    }
+
+    .vsbbm-form-row input,
+    .vsbbm-form-row select,
+    .vsbbm-form-row textarea {
+        min-width: auto;
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .vsbbm-seat {
+        width: 30px;
+        height: 30px;
+        line-height: 30px;
+        font-size: 12px;
+    }
+
+    .vsbbm-seat-map table {
+        transform: scale(0.8);
+        transform-origin: center;
+    }
+
+    .vsbbm-passenger-field {
+        padding: 15px;
+    }
+
+    .vsbbm-passenger-content {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .vsbbm-form-row input,
+    .vsbbm-form-row select,
+    .vsbbm-form-row textarea {
+        padding: 10px;
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .vsbbm-seat-map {
+        overflow-x: auto;
+        padding: 10px;
+    }
+
+    .vsbbm-seat-map table {
+        min-width: 400px;
+    }
+}
+
+/* High DPI displays */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .vsbbm-seat {
+        border-width: 1px;
+    }
+}
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+@keyframes slideInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Error message animation */
+.vsbbm-error-message {
+    animation: shake 0.5s ease-in-out;
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+    20%, 40%, 60%, 80% { transform: translateX(5px); }
 }

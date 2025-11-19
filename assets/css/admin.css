@@ -18,6 +18,20 @@
     align-items: center;
     gap: 20px;
     border-left: 4px solid #667eea;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: fadeInUp 0.6s ease-out;
+    animation-fill-mode: both;
+}
+
+.stat-card:nth-child(1) { animation-delay: 0.1s; }
+.stat-card:nth-child(2) { animation-delay: 0.2s; }
+.stat-card:nth-child(3) { animation-delay: 0.3s; }
+.stat-card:nth-child(4) { animation-delay: 0.4s; }
+
+.stat-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+    border-left-color: #764ba2;
 }
 
 .stat-icon {
@@ -85,6 +99,99 @@
 
 /* رسپانسیو */
 @media (max-width: 1200px) {
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Button hover animations */
+.button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+}
+@media (max-width: 480px) {
+    .vsbbm-stats-grid {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+
+    .stat-card {
+        padding: 20px;
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .stat-icon {
+        width: 50px;
+        height: 50px;
+        font-size: 30px;
+    }
+
+    .stat-number {
+        font-size: 24px;
+    }
+
+    .vsbbm-charts {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .chart-container {
+        padding: 20px;
+    }
+
+    .recent-bookings {
+        padding: 20px;
+    }
+
+    .status-badge {
+        font-size: 11px;
+        padding: 4px 10px;
+    }
+}
+
+@media (max-width: 360px) {
+    .stat-card {
+        padding: 15px;
+    }
+
+    .stat-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 25px;
+    }
+
+    .stat-number {
+        font-size: 20px;
+    }
+
+    .chart-container,
+    .recent-bookings {
+        padding: 15px;
+    }
+}
+
+/* Table row hover */
+.wp-list-table tr:hover {
+    background: #f8f9fa;
+    transition: background 0.2s ease;
+}
+
+/* Form input focus animations */
+input[type="text"]:focus,
+input[type="email"]:focus,
+textarea:focus {
+    transform: scale(1.02);
+    transition: transform 0.2s ease;
+}
     .vsbbm-charts {
         grid-template-columns: 1fr;
     }

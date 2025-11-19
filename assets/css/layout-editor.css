@@ -417,6 +417,101 @@
     color: #721c24;
 }
 
+@media (max-width: 480px) {
+    .layout-editor-toolbar {
+        padding: 10px;
+    }
+
+    .toolbar-items {
+        gap: 8px;
+    }
+
+    .tool-item {
+        padding: 8px 10px;
+        min-width: 80px;
+        font-size: 11px;
+    }
+
+    .tool-icon {
+        font-size: 16px;
+    }
+
+    .tool-label {
+        font-size: 11px;
+    }
+
+    .canvas-header {
+        padding: 10px;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .canvas-info {
+        font-size: 12px;
+        gap: 15px;
+    }
+
+    .canvas-controls {
+        gap: 6px;
+    }
+
+    .layout-canvas {
+        padding: 15px;
+        min-height: 350px;
+    }
+
+    .canvas-grid {
+        padding: 8px;
+    }
+
+    .canvas-cell {
+        width: 40px;
+        height: 40px;
+        font-size: 14px;
+    }
+
+    .settings-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .setting-item input,
+    .setting-item select {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+
+    .modal-content {
+        width: 95%;
+        max-height: 90vh;
+    }
+
+    .modal-header,
+    .modal-body {
+        padding: 15px;
+    }
+
+    .template-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 360px) {
+    .canvas-cell {
+        width: 35px;
+        height: 35px;
+        font-size: 12px;
+    }
+
+    .tool-item {
+        min-width: 70px;
+        padding: 6px 8px;
+    }
+
+    .layout-editor-header h3 {
+        font-size: 16px;
+    }
+}
 .layout-notice.info {
     background: #d1ecf1;
     border: 1px solid #bee5eb;
