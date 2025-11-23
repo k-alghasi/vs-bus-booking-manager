@@ -1,8 +1,178 @@
-/* استایل‌های پایه برای انتخابگر صندلی */
-.vsbbm-seat-map {
+/* =========================================
+   1. استایل‌های پایه و گرید (Grid System)
+   ========================================= */
+
+/* کانتینر اصلی انتخاب صندلی */
+.vsbbm-seat-selection {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+/* شبکه توری صندلی‌ها */
+.vsbbm-seat-layout {
+    display: grid;
+    /* در دسکتاپ: حداقل 60 پیکسل برای هر صندلی */
+    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+    gap: 15px;
+    direction: ltr; /* چیدمان چپ به راست مثل اتوبوس واقعی */
     margin: 20px 0;
 }
 
+/* ظاهر هر صندلی */
 .vsbbm-seat {
-    transition: all 0.3s ease;
+    aspect-ratio: 1; /* همیشه مربع بماند */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    user-select: none;
+    position: relative;
+}
+
+/* آیکون صندلی (ایموجی یا فونت آیکون) */
+.vsbbm-seat-icon {
+    font-size: 20px;
+    margin-bottom: 4px;
+}
+
+/* وضعیت‌های مختلف صندلی */
+.vsbbm-seat-available {
+    background-color: #f0fdf4;
+    border: 2px solid #22c55e;
+    color: #15803d;
+}
+
+.vsbbm-seat-available:hover {
+    background-color: #22c55e;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.vsbbm-seat-reserved {
+    background-color: #fef2f2;
+    border: 2px solid #ef4444;
+    color: #b91c1c;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.vsbbm-seat-selected {
+    background-color: #fbbf24 !important;
+    border-color: #d97706 !important;
+    color: #78350f !important;
+    transform: scale(1.05);
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.3);
+}
+
+/* =========================================
+   2. استایل جدول مسافران (Form Styling)
+   ========================================= */
+
+/* کانتینر جدول برای اسکرول افقی در موبایل */
+.vsbbm-passenger-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch; /* اسکرول نرم در iOS */
+    margin-bottom: 20px;
+    border: 1px solid #eee;
+    border-radius: 8px;
+}
+
+table.passenger-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 600px; /* عرض حداقل برای جلوگیری از له شدن فیلدها */
+}
+
+table.passenger-table th {
+    background: #f8fafc;
+    color: #64748b;
+    font-weight: 600;
+    padding: 12px;
+    text-align: right;
+    font-size: 13px;
+}
+
+table.passenger-table td {
+    padding: 10px;
+    border-top: 1px solid #f1f5f9;
+}
+
+/* استایل فیلدهای ورودی */
+.passenger-table input,
+.passenger-table select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+.passenger-table input:focus,
+.passenger-table select:focus {
+    border-color: #3b82f6;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* =========================================
+   3. 📱 مدیا کوئری برای موبایل (Responsive)
+   ========================================= */
+
+@media screen and (max-width: 768px) {
+    
+    /* 1. تنظیم کانتینر در موبایل */
+    .vsbbm-seat-selection {
+        padding: 15px;
+        margin: 10px 0;
+        border-radius: 8px;
+    }
+
+    /* 2. چیدمان صندلی‌ها در موبایل (4 ستون مثل اتوبوس) */
+    .vsbbm-seat-layout {
+        grid-template-columns: repeat(4, 1fr); /* اجبار به 4 ستون */
+        gap: 8px; /* فاصله کمتر */
+    }
+
+    .vsbbm-seat {
+        font-size: 12px;
+        border-radius: 6px;
+    }
+
+    .vsbbm-seat-icon {
+        font-size: 16px; /* آیکون کوچک‌تر */
+    }
+
+    /* 3. راهنما (Legend) فشرده‌تر */
+    .vsbbm-legend {
+        gap: 10px;
+        font-size: 12px;
+    }
+
+    /* 4. جلوگیری از زوم خودکار در آیفون */
+    .passenger-table input,
+    .passenger-table select {
+        font-size: 16px !important; /* سایز امن برای iOS */
+    }
+
+    /* 5. دکمه افزودن به سبد خرید تمام عرض */
+    .vsbbm-seat-selection button[onclick*="vsbbmAddToCart"] {
+        width: 100%;
+        padding: 14px;
+        font-size: 16px;
+        margin-top: 10px;
+    }
 }

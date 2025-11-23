@@ -426,6 +426,7 @@ class VSBBM_Seat_Manager {
             </div>
             
             <div style="overflow-x: auto; font-size: 12px;">
+            <div class="vsbbm-passenger-table-wrapper"> <table style="width: 100%; border-collapse: collapse; min-width: 600px;" class="passenger-table">
                 <table style="width: 100%; border-collapse: collapse; min-width: 400px;" class="passenger-table">
                     <thead>
                         <tr style="background: #f8f9fa;">
