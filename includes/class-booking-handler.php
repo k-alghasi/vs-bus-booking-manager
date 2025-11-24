@@ -23,7 +23,8 @@ class VSBBM_Booking_Handler {
         }
         
         $seat_numbers = VSBBM_Seat_Manager::get_seat_numbers($product->get_id());
-        $reserved_seats = VSBBM_Seat_Manager::get_reserved_seats($product->get_id());
+        // توجه: این تابع get_reserved_seats باید به‌روزرسانی شود تا تاریخ را نیز در نظر بگیرد
+        $reserved_seats = VSBBM_Seat_Reservations::get_reserved_seats($product->get_id());
         
         wp_enqueue_style('vsbbm-frontend', VSBBM_PLUGIN_URL . 'assets/css/frontend.css');
         wp_enqueue_script('vsbbm-frontend', VSBBM_PLUGIN_URL . 'assets/js/frontend.js', array('jquery'), VSBBM_VERSION, true);
@@ -43,6 +44,10 @@ class VSBBM_Booking_Handler {
             return $passed;
         }
         
+        // توجه: از آنجایی که از سیستم AJAX جدید استفاده می‌کنیم، این اعتبارسنجی‌ها 
+        // در class-seat-manager::add_to_cart_ajax انجام می‌شوند و این تابع در حقیقت 
+        // دیگر برای ماژول رزرو صندلی فعال نخواهد بود. اما برای حفظ بک‌وارد کامپتیبیلیتی باقی می‌ماند.
+        
         if (empty($_POST['vsbbm_passenger_data'])) {
             wc_add_notice('❌ لطفا ابتدا صندلی انتخاب کرده و اطلاعات مسافران را وارد کنید', 'error');
             return false;
@@ -55,7 +60,8 @@ class VSBBM_Booking_Handler {
             return false;
         }
         
-        $reserved_seats = VSBBM_Seat_Manager::get_reserved_seats($product_id);
+        // توجه: این فراخوانی باید به‌روزرسانی شود تا تاریخ حرکت را نیز لحاظ کند
+        $reserved_seats = VSBBM_Seat_Reservations::get_reserved_seats($product_id); 
         $selected_seats = array();
         $national_codes = array();
         
@@ -139,14 +145,25 @@ class VSBBM_Booking_Handler {
         return true;
     }
     
+    /**
+     * اضافه کردن داده‌های رزرو به آیتم سبد خرید
+     * توجه: در حالت AJAX، بخش عمده داده‌ها توسط class-seat-manager اضافه می‌شود.
+     * این تابع به عنوان یک لایه کمکی برای حالت‌های دیگر باقی می‌ماند.
+     */
     public static function add_cart_item_data($cart_item_data, $product_id, $variation_id) {
         if (!VSBBM_Seat_Manager::is_seat_booking_enabled($product_id)) {
             return $cart_item_data;
         }
         
+        // منطق قبلی برای مسافران
         if (!empty($_POST['vsbbm_passenger_data'])) {
             $passenger_data = json_decode(wp_unslash($_POST['vsbbm_passenger_data']), true);
             $cart_item_data['vsbbm_passengers'] = $passenger_data;
+        }
+
+        // --- گام C.۳: اضافه کردن تاریخ حرکت (اگر از طریق AJAX ارسال نشده باشد) ---
+        if (isset($_POST['vsbbm_departure_timestamp']) && !empty($_POST['vsbbm_departure_timestamp'])) {
+            $cart_item_data['vsbbm_departure_timestamp'] = sanitize_text_field($_POST['vsbbm_departure_timestamp']);
         }
         
         return $cart_item_data;
@@ -154,11 +171,15 @@ class VSBBM_Booking_Handler {
     
     public static function update_cart_item_quantity($cart_item_data, $cart_item_key) {
         if (isset($cart_item_data['vsbbm_passengers'])) {
+            // تعداد آیتم سبد خرید همیشه برابر با تعداد مسافران است
             $cart_item_data['quantity'] = count($cart_item_data['vsbbm_passengers']);
         }
         return $cart_item_data;
     }
     
+    /**
+     * نمایش اطلاعات مسافر و تاریخ حرکت در صفحات سبد خرید و تسویه‌حساب
+     */
     public static function display_cart_item_data($item_data, $cart_item) {
         if (isset($cart_item['vsbbm_passengers'])) {
             foreach ($cart_item['vsbbm_passengers'] as $index => $passenger) {
@@ -184,9 +205,32 @@ class VSBBM_Booking_Handler {
                 );
             }
         }
+        
+        // --- گام C.۳: نمایش تاریخ حرکت ---
+        if (isset($cart_item['vsbbm_departure_timestamp']) && !empty($cart_item['vsbbm_departure_timestamp'])) {
+            $timestamp = $cart_item['vsbbm_departure_timestamp'];
+            
+            // اطمینان از فرمت تاریخ
+            try {
+                $datetime_obj = new DateTime($timestamp);
+                // استفاده از date_i18n برای نمایش صحیح تاریخ بومی
+                $formatted_date = date_i18n('Y/m/d H:i', $datetime_obj->getTimestamp()); 
+            } catch (Exception $e) {
+                $formatted_date = $timestamp; // Fallback
+            }
+            
+            $item_data[] = array(
+                'name'  => esc_html__('تاریخ حرکت', 'vs-bus-booking-manager'),
+                'value' => $formatted_date
+            );
+        }
+        
         return $item_data;
     }
     
+    /**
+     * ذخیره متادیتای آیتم سفارش (مسافران و تاریخ حرکت)
+     */
     public static function save_order_item_meta($item, $cart_item_key, $values, $order) {
         if (isset($values['vsbbm_passengers'])) {
             foreach ($values['vsbbm_passengers'] as $index => $passenger) {
@@ -213,7 +257,34 @@ class VSBBM_Booking_Handler {
 
             // بروزرسانی رزروها با order ID
             $order_id = $order->get_id();
-            VSBBM_Seat_Reservations::update_reservation_order_id($order_id, $values['vsbbm_passengers']);
+            // فرض می‌کنیم کلاس VSBBM_Seat_Reservations در دسترس است
+            if (class_exists('VSBBM_Seat_Reservations')) {
+                 VSBBM_Seat_Reservations::update_reservation_order_id($order_id, $values['vsbbm_passengers']);
+            }
+        }
+        
+        // --- گام C.۳: ذخیره تاریخ حرکت ---
+        if (isset($values['vsbbm_departure_timestamp']) && !empty($values['vsbbm_departure_timestamp'])) {
+            $timestamp = $values['vsbbm_departure_timestamp'];
+            
+            // ذخیره تاریخ خام (کلید خصوصی برای Ticket Manager)
+            $item->add_meta_data(
+                '_vsbbm_departure_timestamp', 
+                $timestamp
+            );
+            
+            // ذخیره تاریخ قابل نمایش برای مدیر
+            try {
+                $datetime_obj = new DateTime($timestamp);
+                $display_date = date_i18n('Y/m/d H:i', $datetime_obj->getTimestamp());
+            } catch (Exception $e) {
+                $display_date = $timestamp;
+            }
+            
+             $item->add_meta_data(
+                esc_html__('تاریخ حرکت', 'vs-bus-booking-manager'),
+                $display_date
+            );
         }
     }
     
@@ -327,5 +398,3 @@ add_filter('woocommerce_cart_item_price', array('VSBBM_Booking_Handler', 'displa
  * نمایش زیرمجموعه صحیح در سبد خرید
  */
 add_filter('woocommerce_cart_item_subtotal', array('VSBBM_Booking_Handler', 'display_cart_item_subtotal'), 10, 3);
-
-// <-- End of class
