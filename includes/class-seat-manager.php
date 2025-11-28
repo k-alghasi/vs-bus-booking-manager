@@ -1,6 +1,10 @@
 <?php
 defined('ABSPATH') || exit;
 
+/**
+ * Class VSBBM_Seat_Manager
+ * مدیریت تنظیمات صندلی و نمایش انتخابگر در محصول
+ */
 class VSBBM_Seat_Manager {
     
     public static function init() {
@@ -14,299 +18,165 @@ class VSBBM_Seat_Manager {
         add_action('woocommerce_product_options_general_product_data', array(__CLASS__, 'add_product_fields'));
         add_action('woocommerce_process_product_meta', array(__CLASS__, 'save_product_fields'));
         
-        // متاباکس چیدمان صندلی (قدیمی)
+        // متاباکس چیدمان صندلی 
         add_action('add_meta_boxes', array(__CLASS__, 'add_seat_meta_box'));
         add_action('save_post_product', array(__CLASS__, 'save_seat_numbers'));
 
-        // *** متاباکس جدید برای زمان‌بندی سفر (گام B) ***
+        // *** متاباکس جدید برای زمان‌بندی سفر ***
         add_action('add_meta_boxes', array(__CLASS__, 'add_schedule_meta_box'));
         add_action('save_post_product', array(__CLASS__, 'save_schedule_settings'));
+        
+        // --- FIX: افزودن هوک‌های بارگذاری اسکریپت‌ها و استایل‌ها ---
+        add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueue_admin_scripts'));
+        add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueue_frontend_scripts'));
+        // ------------------------------------------------
         
         add_action('admin_head', array(__CLASS__, 'admin_styles'));
 
         // ثبت هندلرهای AJAX
         self::register_ajax_handlers();
 
-        // هوک نمایش انتخاب صندلی
+        // هوک نمایش انتخاب صندلی در صفحه محصول
         add_action('woocommerce_single_product_summary', array(__CLASS__, 'display_seat_selection'), 25);
         
-        // enqueue scripts (گام C.1)
-        add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueue_frontend_scripts'));
-
         // فیلتر برای دیباگ
         add_filter('the_content', array(__CLASS__, 'check_product_page'), 1);
     }
-
-    // --- توابع کمکی ---
-
-    /**
-     * دریافت تنظیمات سفر محصول
-     */
-    public static function get_trip_settings($product_id) {
-        $settings = get_post_meta($product_id, '_vsbbm_trip_settings', true);
-        
-        // مقادیر پیش‌فرض
-        return wp_parse_args($settings, array(
-            'schedule_type' => 'open', // open, one-time, recurring
-            'origin'        => '',
-            'destination'   => '',
-            'one_time_date' => '',
-            'one_time_time' => '10:00',
-            'recurring_days'=> array(),
-            'recurring_time'=> '10:00',
-            'start_date'    => '',
-            'end_date'      => '',
-        ));
-    }
     
     /**
-     * محاسبه تاریخ‌های موجود بر اساس تنظیمات تکرارشونده
+     * بارگذاری اسکریپت‌ها و استایل‌های ادمین (FIX)
      */
-    private static function calculate_available_dates($settings) {
-        $dates = array();
-        $start_date = strtotime($settings['start_date']);
-        $end_date = strtotime($settings['end_date']);
-        $recurring_days = (array)$settings['recurring_days'];
+    public static function enqueue_admin_scripts($hook) {
+        $screen = get_current_screen();
         
-        if (!$start_date || !$end_date || empty($recurring_days)) {
-            return $dates;
+        if ($screen && $screen->id === 'product') {
+            // برای تنظیمات چیدمان صندلی
+            wp_enqueue_script('vsbbm-admin-seat', VSBBM_PLUGIN_URL . 'assets/js/frontend.js', array('jquery'), VSBBM_VERSION, true);
+            wp_enqueue_style('vsbbm-admin-seat', VSBBM_PLUGIN_URL . 'assets/css/admin.css', array(), VSBBM_VERSION);
+            
+            // برای Date/Time Picker
+            wp_enqueue_style('jquery-ui-datepicker-style', '//ajax.googleapis.com/ajax/libs/jqueryui/1.10.4/themes/smoothness/jquery-ui.css');
+            wp_enqueue_script('jquery-ui-datepicker');
+            
+            // اسکریپت زمان‌بندی سفر
+            wp_enqueue_script('vsbbm-admin-schedule', VSBBM_PLUGIN_URL . 'assets/js/frontend.js', array('jquery', 'jquery-ui-datepicker'), VSBBM_VERSION, true);
         }
-
-        $current = $start_date;
-        $today = strtotime(date('Y-m-d')); // فقط تاریخ‌های آینده
-        
-        $day_names = array(
-            0 => esc_html__('یکشنبه', 'vs-bus-booking-manager'), 
-            1 => esc_html__('دوشنبه', 'vs-bus-booking-manager'), 
-            2 => esc_html__('سه‌شنبه', 'vs-bus-booking-manager'), 
-            3 => esc_html__('چهارشنبه', 'vs-bus-booking-manager'), 
-            4 => esc_html__('پنج‌شنبه', 'vs-bus-booking-manager'), 
-            5 => esc_html__('جمعه', 'vs-bus-booking-manager'), 
-            6 => esc_html__('شنبه', 'vs-bus-booking-manager')
-        );
-
-        // محدودیت سه‌ماهه (۹۰ روز) برای جلوگیری از بارگذاری زیاد
-        $limit_date = strtotime('+90 days'); 
-        
-        while ($current <= $end_date && $current <= $limit_date) {
-            // فقط تاریخ‌های آینده را نشان دهید
-            if ($current >= $today) {
-                $day_of_week = date('w', $current);
-                if (in_array($day_of_week, $recurring_days)) {
-                    $date_str = date('Y-m-d', $current);
-                    $dates[$date_str] = $day_names[$day_of_week];
-                }
-            }
-            $current = strtotime('+1 day', $current);
-        }
-        
-        return $dates;
     }
 
-    // --- توابع مدیریت محصول (ادمین - موجود در فایل اصلی کاربر) ---
+    /**
+     * بارگذاری اسکریپت‌ها و استایل‌های فرانت‌اند (FIX)
+     */
+    public static function enqueue_frontend_scripts() {
+        if (is_product()) {
+            global $post;
+            
+            if (self::is_seat_booking_enabled($post->ID)) {
+                // استایل و اسکریپت اصلی فرانت‌اند
+                wp_enqueue_style('vsbbm-frontend-seat', VSBBM_PLUGIN_URL . 'assets/css/frontend.css', array(), VSBBM_VERSION);
+                wp_enqueue_script('vsbbm-frontend', VSBBM_PLUGIN_URL . 'assets/js/frontend.js', array('jquery'), VSBBM_VERSION, true);
+                
+                // لوکالایز کردن اسکریپت با داده‌های مورد نیاز
+                wp_localize_script('vsbbm-frontend', 'vsbbm_ajax_object', array(
+                    'ajax_url' => admin_url('admin-ajax.php'),
+                    'product_id' => $post->ID,
+                    'nonce' => wp_create_nonce('vsbbm_seat_nonce'),
+                    // رزروها باید توسط تابع AJAX لود شوند تا کش شوند
+                    'reservations' => array(), 
+                    'schedule_settings' => self::get_schedule_settings($post->ID), 
+                    'current_time' => current_time('timestamp'),
+                    'currency_symbol' => get_woocommerce_currency_symbol(),
+                    'text' => array(
+                        'select_departure_date' => __('لطفاً تاریخ حرکت را انتخاب کنید.', 'vs-bus-booking-manager'),
+                        'seat_reserved' => __('صندلی رزرو شده', 'vs-bus-booking-manager'),
+                        'seat_selected' => __('صندلی انتخاب شده', 'vs-bus-booking-manager'),
+                        'seat_available' => __('صندلی موجود', 'vs-bus-booking-manager'),
+                        'fill_passenger_data' => __('لطفاً اطلاعات مسافران را تکمیل کنید.', 'vs-bus-booking-manager'),
+                        'max_seats_reached' => __('تعداد صندلی‌های انتخابی مجاز نیست.', 'vs-bus-booking-manager'),
+                    )
+                ));
+            }
+        }
+    }
 
     /**
-     * اضافه کردن فیلدهای محصول ووکامرس
+     * اضافه کردن فیلدهای محصول
      */
     public static function add_product_fields() {
+        global $product_object;
+
         echo '<div class="options_group">';
+        
         woocommerce_wp_checkbox(array(
             'id' => '_vsbbm_enable_seat_booking',
-            'label' => esc_html__('فعال‌سازی رزرو صندلی', 'vs-bus-booking-manager'),
-            'description' => esc_html__('با فعال‌سازی این گزینه، چیدمان صندلی‌ها در صفحه محصول نمایش داده می‌شود.', 'vs-bus-booking-manager'),
+            'value' => get_post_meta($product_object->get_id(), '_vsbbm_enable_seat_booking', true),
+            'label' => __('رزرو صندلی اتوبوس', 'vs-bus-booking-manager'),
+            'description' => __('فعال‌سازی سیستم انتخاب صندلی برای این محصول.', 'vs-bus-booking-manager'),
         ));
+
+        woocommerce_wp_select(array(
+            'id' => '_vsbbm_bus_type',
+            'value' => get_post_meta($product_object->get_id(), '_vsbbm_bus_type', true),
+            'label' => __('نوع اتوبوس', 'vs-bus-booking-manager'),
+            'description' => __('چیدمان گرافیکی صندلی را انتخاب کنید.', 'vs-bus-booking-manager'),
+            'options' => array(
+                '' => __('هیچکدام', 'vs-bus-booking-manager'),
+                '2x2' => __('2x2 (معمولی)', 'vs-bus-booking-manager'),
+                '1x2' => __('1x2 (VIP)', 'vs-bus-booking-manager'),
+                '1x1' => __('1x1 (سفارشی)', 'vs-bus-booking-manager'),
+            ),
+        ));
+        
+        woocommerce_wp_text_input(array(
+            'id' => '_vsbbm_bus_rows',
+            'value' => get_post_meta($product_object->get_id(), '_vsbbm_bus_rows', true),
+            'label' => __('تعداد ردیف‌ها', 'vs-bus-booking-manager'),
+            'description' => __('حداکثر تعداد ردیف‌های صندلی اتوبوس.', 'vs-bus-booking-manager'),
+            'data_type' => 'number',
+            'custom_attributes' => array(
+                'min' => '1',
+                'step' => '1',
+            ),
+        ));
+
+        woocommerce_wp_text_input(array(
+            'id' => '_vsbbm_bus_columns',
+            'value' => get_post_meta($product_object->get_id(), '_vsbbm_bus_columns', true),
+            'label' => __('تعداد ستون‌ها', 'vs-bus-booking-manager'),
+            'description' => __('تعداد ستون‌های صندلی در هر سمت (برای چیدمان 2x2 باید 2 باشد).', 'vs-bus-booking-manager'),
+            'data_type' => 'number',
+            'custom_attributes' => array(
+                'min' => '1',
+                'step' => '1',
+            ),
+        ));
+
         echo '</div>';
     }
 
     /**
-     * ذخیره فیلدهای محصول ووکامرس
+     * ذخیره فیلدهای محصول
      */
     public static function save_product_fields($post_id) {
-        $checkbox_value = isset($_POST['_vsbbm_enable_seat_booking']) ? 'yes' : 'no';
-        update_post_meta($post_id, '_vsbbm_enable_seat_booking', $checkbox_value);
+        $enable_booking = isset($_POST['_vsbbm_enable_seat_booking']) ? 'yes' : 'no';
+        update_post_meta($post_id, '_vsbbm_enable_seat_booking', sanitize_text_field($enable_booking));
+
+        $bus_type = sanitize_text_field($_POST['_vsbbm_bus_type'] ?? '');
+        update_post_meta($post_id, '_vsbbm_bus_type', $bus_type);
+
+        $bus_rows = sanitize_text_field($_POST['_vsbbm_bus_rows'] ?? '');
+        update_post_meta($post_id, '_vsbbm_bus_rows', $bus_rows);
+
+        $bus_columns = sanitize_text_field($_POST['_vsbbm_bus_columns'] ?? '');
+        update_post_meta($post_id, '_vsbbm_bus_columns', $bus_columns);
     }
     
-    // --- توابع مدیریت زمان‌بندی سفر (گام B) ---
-
-    /**
-     * اضافه کردن متاباکس تنظیمات سفر و زمان‌بندی
-     */
-    public static function add_schedule_meta_box() {
-        add_meta_box(
-            'vsbbm_trip_schedule',
-            esc_html__('تنظیمات سفر و زمان‌بندی', 'vs-bus-booking-manager'),
-            array(__CLASS__, 'render_schedule_meta_box'),
-            'product',
-            'normal',
-            'high'
-        );
-    }
-
-    /**
-     * رندر متاباکس تنظیمات سفر و زمان‌بندی
-     */
-    public static function render_schedule_meta_box($post) {
-        $post_id = $post->ID;
-        $settings = self::get_trip_settings($post_id);
-        
-        wp_nonce_field('vsbbm_trip_schedule_nonce', 'vsbbm_trip_schedule_nonce');
-        
-        ?>
-        <div id="vsbbm-trip-schedule-admin">
-            <h3><?php echo esc_html__('مسیر سفر', 'vs-bus-booking-manager'); ?></h3>
-            <p class="description"><?php echo esc_html__('تعریف مبدأ و مقصد برای نمایش بهتر در بلیط و گزارشات.', 'vs-bus-booking-manager'); ?></p>
-            
-            <p>
-                <label for="vsbbm_origin"><strong><?php echo esc_html__('مبدأ حرکت', 'vs-bus-booking-manager'); ?>:</strong></label>
-                <input type="text" id="vsbbm_origin" name="vsbbm_trip_settings[origin]" value="<?php echo esc_attr($settings['origin']); ?>" class="regular-text" placeholder="<?php echo esc_attr__('مثلاً: تهران', 'vs-bus-booking-manager'); ?>" />
-            </p>
-            
-            <p>
-                <label for="vsbbm_destination"><strong><?php echo esc_html__('مقصد سفر', 'vs-bus-booking-manager'); ?>:</strong></label>
-                <input type="text" id="vsbbm_destination" name="vsbbm_trip_settings[destination]" value="<?php echo esc_attr($settings['destination']); ?>" class="regular-text" placeholder="<?php echo esc_attr__('مثلاً: اصفهان', 'vs-bus-booking-manager'); ?>" />
-            </p>
-
-            <hr/>
-
-            <h3><?php echo esc_html__('برنامه‌ریزی حرکت', 'vs-bus-booking-manager'); ?></h3>
-            
-            <p>
-                <label><strong><?php echo esc_html__('نوع برنامه‌ریزی', 'vs-bus-booking-manager'); ?>:</strong></label><br/>
-                <input type="radio" id="schedule_open" name="vsbbm_trip_settings[schedule_type]" value="open" <?php checked($settings['schedule_type'], 'open'); ?> data-target="schedule-open" /> 
-                <label for="schedule_open"><?php echo esc_html__('بدون محدودیت تاریخ (همیشه باز)', 'vs-bus-booking-manager'); ?></label><br/>
-                
-                <input type="radio" id="schedule_one_time" name="vsbbm_trip_settings[schedule_type]" value="one-time" <?php checked($settings['schedule_type'], 'one-time'); ?> data-target="schedule-one-time" />
-                <label for="schedule_one_time"><?php echo esc_html__('یک حرکت مشخص', 'vs-bus-booking-manager'); ?></label><br/>
-                
-                <input type="radio" id="schedule_recurring" name="vsbbm_trip_settings[schedule_type]" value="recurring" <?php checked($settings['schedule_type'], 'recurring'); ?> data-target="schedule-recurring" />
-                <label for="schedule_recurring"><?php echo esc_html__('حرکت تکرارشونده (هفتگی)', 'vs-bus-booking-manager'); ?></label>
-            </p>
-
-            <div id="schedule-options">
-                
-                <div id="schedule-one-time" class="schedule-group" style="display: none;">
-                    <h4><?php echo esc_html__('تاریخ و زمان حرکت', 'vs-bus-booking-manager'); ?></h4>
-                    <p>
-                        <label for="vsbbm_one_time_date"><?php echo esc_html__('تاریخ:', 'vs-bus-booking-manager'); ?></label>
-                        <input type="date" id="vsbbm_one_time_date" name="vsbbm_trip_settings[one_time_date]" value="<?php echo esc_attr($settings['one_time_date']); ?>" />
-                    </p>
-                    <p>
-                        <label for="vsbbm_one_time_time"><?php echo esc_html__('ساعت حرکت:', 'vs-bus-booking-manager'); ?></label>
-                        <input type="time" id="vsbbm_one_time_time" name="vsbbm_trip_settings[one_time_time]" value="<?php echo esc_attr($settings['one_time_time']); ?>" />
-                    </p>
-                </div>
-
-                <div id="schedule-recurring" class="schedule-group" style="display: none;">
-                    <h4><?php echo esc_html__('تنظیمات تکرار', 'vs-bus-booking-manager'); ?></h4>
-                    <p class="description"><?php echo esc_html__('تعیین روزهای هفته و بازه زمانی برای این برنامه.', 'vs-bus-booking-manager'); ?></p>
-                    
-                    <p>
-                        <label for="vsbbm_start_date"><?php echo esc_html__('تاریخ شروع بازه:', 'vs-bus-booking-manager'); ?></label>
-                        <input type="date" id="vsbbm_start_date" name="vsbbm_trip_settings[start_date]" value="<?php echo esc_attr($settings['start_date']); ?>" />
-                    </p>
-                    <p>
-                        <label for="vsbbm_end_date"><?php echo esc_html__('تاریخ پایان بازه:', 'vs-bus-booking-manager'); ?></label>
-                        <input type="date" id="vsbbm_end_date" name="vsbbm_trip_settings[end_date]" value="<?php echo esc_attr($settings['end_date']); ?>" />
-                    </p>
-                    
-                    <p>
-                        <label><strong><?php echo esc_html__('روزهای هفته:', 'vs-bus-booking-manager'); ?></strong></label><br/>
-                        <?php 
-                        $week_days = array(
-                            0 => esc_html__('یکشنبه', 'vs-bus-booking-manager'), 
-                            1 => esc_html__('دوشنبه', 'vs-bus-booking-manager'), 
-                            2 => esc_html__('سه‌شنبه', 'vs-bus-booking-manager'), 
-                            3 => esc_html__('چهارشنبه', 'vs-bus-booking-manager'), 
-                            4 => esc_html__('پنج‌شنبه', 'vs-bus-booking-manager'), 
-                            5 => esc_html__('جمعه', 'vs-bus-booking-manager'), 
-                            6 => esc_html__('شنبه', 'vs-bus-booking-manager')
-                        ); 
-                        
-                        foreach ($week_days as $key => $day) {
-                            $checked = in_array($key, (array)$settings['recurring_days']) ? 'checked' : '';
-                            echo "<input type='checkbox' id='day_{$key}' name='vsbbm_trip_settings[recurring_days][]' value='{$key}' {$checked} /> <label for='day_{$key}'>{$day}</label><br/>";
-                        }
-                        ?>
-                    </p>
-                    <p>
-                        <label for="vsbbm_recurring_time"><?php echo esc_html__('ساعت حرکت:', 'vs-bus-booking-manager'); ?></label>
-                        <input type="time" id="vsbbm_recurring_time" name="vsbbm_trip_settings[recurring_time]" value="<?php echo esc_attr($settings['recurring_time']); ?>" />
-                    </p>
-                </div>
-            </div>
-        </div>
-        
-        <script>
-        jQuery(document).ready(function($) {
-            function toggleScheduleFields() {
-                const selectedType = $('input[name="vsbbm_trip_settings[schedule_type]"]:checked').val();
-                $('.schedule-group').hide();
-                if (selectedType === 'one-time') {
-                    $('#schedule-one-time').show();
-                } else if (selectedType === 'recurring') {
-                    $('#schedule-recurring').show();
-                }
-            }
-
-            // اجرا هنگام بارگذاری صفحه و تغییر
-            toggleScheduleFields();
-            $('input[name="vsbbm_trip_settings[schedule_type]"]').change(toggleScheduleFields);
-        });
-        </script>
-        <?php
-    }
-
-    /**
-     * ذخیره تنظیمات سفر و زمان‌بندی
-     */
-    public static function save_schedule_settings($post_id) {
-        // بررسی مجوزها و نانس
-        if (!isset($_POST['vsbbm_trip_schedule_nonce']) || !wp_verify_nonce($_POST['vsbbm_trip_schedule_nonce'], 'vsbbm_trip_schedule_nonce')) {
-            return;
-        }
-
-        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
-            return;
-        }
-
-        if (!current_user_can('edit_product', $post_id)) {
-            return;
-        }
-        
-        if (isset($_POST['vsbbm_trip_settings'])) {
-            $settings = wp_unslash($_POST['vsbbm_trip_settings']);
-
-            // تمیز کردن داده‌ها (Sanitization)
-            $sanitized_settings = array();
-            $sanitized_settings['schedule_type'] = sanitize_text_field($settings['schedule_type']);
-            $sanitized_settings['origin'] = sanitize_text_field($settings['origin']);
-            $sanitized_settings['destination'] = sanitize_text_field($settings['destination']);
-            
-            if ($sanitized_settings['schedule_type'] === 'one-time') {
-                $sanitized_settings['one_time_date'] = sanitize_text_field($settings['one_time_date']);
-                $sanitized_settings['one_time_time'] = sanitize_text_field($settings['one_time_time']);
-            } elseif ($sanitized_settings['schedule_type'] === 'recurring') {
-                $sanitized_settings['start_date'] = sanitize_text_field($settings['start_date']);
-                $sanitized_settings['end_date'] = sanitize_text_field($settings['end_date']);
-                $sanitized_settings['recurring_time'] = sanitize_text_field($settings['recurring_time']);
-                // آرایه روزهای هفته
-                $sanitized_settings['recurring_days'] = array_map('intval', (array)$settings['recurring_days']);
-            }
-
-            // ذخیره نهایی
-            update_post_meta($post_id, '_vsbbm_trip_settings', $sanitized_settings);
-        }
-    }
-    
-    // --- توابع چیدمان صندلی (موجود در فایل اصلی کاربر) ---
-
     /**
      * اضافه کردن متاباکس چیدمان صندلی
      */
     public static function add_seat_meta_box() {
         add_meta_box(
             'vsbbm_seat_layout',
-            esc_html__('چیدمان صندلی اتوبوس', 'vs-bus-booking-manager'),
+            __('چیدمان صندلی اتوبوس', 'vs-bus-booking-manager'),
             array(__CLASS__, 'render_seat_meta_box'),
             'product',
             'normal',
@@ -318,39 +188,33 @@ class VSBBM_Seat_Manager {
      * رندر متاباکس چیدمان صندلی
      */
     public static function render_seat_meta_box($post) {
-        $post_id = $post->ID;
-        $seat_numbers_json = self::get_seat_numbers($post_id, true);
-        $total_seats = count(self::get_seat_numbers($post_id, false));
+        wp_nonce_field('vsbbm_save_seat_numbers', 'vsbbm_seat_numbers_nonce');
+        $seat_numbers = self::get_seat_numbers($post->ID);
+        $settings = self::get_product_settings($post->ID);
+
+        // داده‌های مورد نیاز برای اسکریپت
+        $rows = $settings['rows'];
+        $columns = $settings['columns'];
+        $type = $settings['type'];
         
-        wp_nonce_field('vsbbm_seat_layout_nonce', 'vsbbm_seat_layout_nonce');
         ?>
-        <div id="vsbbm-seat-manager-admin">
-            <p class="description"><?php echo esc_html__('با دابل کلیک روی هر صندلی، آن را حذف یا اضافه کنید.', 'vs-bus-booking-manager'); ?></p>
-            
-            <div id="vsbbm-seat-map" data-initial-layout='<?php echo esc_attr($seat_numbers_json); ?>'>
-                <div class="vsbbm-bus-body">
-                    <div class="vsbbm-driver-seat">
-                        <img src="<?php echo VSBBM_PLUGIN_URL . 'assets/images/steering-wheel.png'; ?>" alt="Driver" />
-                    </div>
-                </div>
+        <div id="vsbbm-seat-manager">
+            <p><?php _e('برای فعال‌سازی، ابتدا در تب عمومی، "رزرو صندلی اتوبوس" را فعال کنید.', 'vs-bus-booking-manager'); ?></p>
+            <div class="vsbbm-seat-layout-editor" data-rows="<?php echo esc_attr($rows); ?>" data-cols="<?php echo esc_attr($columns); ?>" data-type="<?php echo esc_attr($type); ?>">
+                <div id="vsbbm-seat-grid"></div>
             </div>
-            
-            <input type="hidden" id="vsbbm_seat_numbers" name="vsbbm_seat_numbers" value="<?php echo esc_attr($seat_numbers_json); ?>" />
-            <p>
-                <strong><?php echo esc_html__('تعداد کل صندلی‌های فعال:', 'vs-bus-booking-manager'); ?></strong> 
-                <span id="vsbbm-total-seats"><?php echo esc_html($total_seats); ?></span>
-            </p>
+            <input type="hidden" name="_vsbbm_seat_numbers" id="vsbbm_seat_numbers_input" value="<?php echo esc_attr(json_encode($seat_numbers)); ?>" />
+            <p><strong><?php _e('صندلی‌های فعلی:', 'vs-bus-booking-manager'); ?></strong> <span id="vsbbm-current-seats"><?php echo implode(', ', array_keys($seat_numbers)); ?></span></p>
+            <p><small><?php _e('برای تغییر نوع (ردیف/ستون) به تب عمومی بروید و محصول را ذخیره کنید.', 'vs-bus-booking-manager'); ?></small></p>
         </div>
-        
         <?php
     }
 
     /**
-     * ذخیره چیدمان صندلی‌ها
+     * ذخیره شماره صندلی‌ها
      */
     public static function save_seat_numbers($post_id) {
-        // بررسی مجوزها و نانس
-        if (!isset($_POST['vsbbm_seat_layout_nonce']) || !wp_verify_nonce($_POST['vsbbm_seat_layout_nonce'], 'vsbbm_seat_layout_nonce')) {
+        if (!isset($_POST['vsbbm_seat_numbers_nonce']) || !wp_verify_nonce(sanitize_text_field($_POST['vsbbm_seat_numbers_nonce']), 'vsbbm_save_seat_numbers')) {
             return;
         }
 
@@ -358,336 +222,419 @@ class VSBBM_Seat_Manager {
             return;
         }
 
-        if (!current_user_can('edit_product', $post_id)) {
-            return;
-        }
-
-        if (isset($_POST['vsbbm_seat_numbers'])) {
-            $seat_numbers = wp_unslash($_POST['vsbbm_seat_numbers']);
-            // فرض می‌کنیم داده JSON معتبر است
-            update_post_meta($post_id, '_vsbbm_seat_numbers', $seat_numbers);
+        if (isset($_POST['_vsbbm_seat_numbers'])) {
+            $seat_numbers_json = wp_kses_post(wp_unslash($_POST['_vsbbm_seat_numbers']));
+            $seat_numbers = json_decode($seat_numbers_json, true);
+            
+            // تمیزسازی داده‌ها
+            $clean_seats = array();
+            if (is_array($seat_numbers)) {
+                foreach ($seat_numbers as $seat_key => $seat_data) {
+                    $clean_seats[sanitize_key($seat_key)] = array(
+                        'label' => sanitize_text_field($seat_data['label'] ?? $seat_key),
+                        'price' => floatval($seat_data['price'] ?? 0),
+                        'type' => sanitize_key($seat_data['type'] ?? 'default'),
+                    );
+                }
+            }
+            
+            update_post_meta($post_id, '_vsbbm_seat_numbers', $clean_seats);
+            
+            // پاکسازی کش رزرو
+            if (class_exists('VSBBM_Cache_Manager')) {
+                VSBBM_Cache_Manager::get_instance()->clear_product_cache($post_id);
+            }
         }
     }
     
-    // --- توابع Script (ادمین و فرانت‌اند) ---
-
     /**
-     * اضافه کردن استایل‌های ادمین
+     * متاباکس زمان‌بندی سفر
      */
-    public static function admin_styles() {
+    public static function add_schedule_meta_box() {
+        add_meta_box(
+            'vsbbm_schedule_meta_box',
+            __('زمان‌بندی سفر', 'vs-bus-booking-manager'),
+            array(__CLASS__, 'render_schedule_meta_box'),
+            'product',
+            'side',
+            'high'
+        );
+    }
+    
+    public static function render_schedule_meta_box($post) {
+        $settings = self::get_schedule_settings($post->ID);
+        // تمپلیت HTML برای نمایش فیلدهای زمان‌بندی سفر
         ?>
-        <style>
-            #vsbbm-trip-schedule-admin label strong {
-                display: block;
-                margin-bottom: 5px;
-            }
-            #vsbbm-trip-schedule-admin input[type="date"],
-            #vsbbm-trip-schedule-admin input[type="time"] {
-                padding: 6px;
-                border-radius: 4px;
-                border: 1px solid #ccc;
-            }
-        </style>
+        <div class="vsbbm-schedule-settings">
+            <p>
+                <label for="vsbbm_enable_schedule">
+                    <input type="checkbox" id="vsbbm_enable_schedule" name="vsbbm_enable_schedule" value="yes" <?php checked('yes', $settings['enable_schedule']); ?> />
+                    <?php _e('فعال‌سازی انتخاب تاریخ حرکت', 'vs-bus-booking-manager'); ?>
+                </label>
+            </p>
+            <div id="vsbbm_schedule_fields" style="<?php echo ('yes' !== $settings['enable_schedule']) ? 'display: none;' : ''; ?>">
+                <p>
+                    <label for="vsbbm_min_days_advance"><?php _e('حداقل روز رزرو از پیش:', 'vs-bus-booking-manager'); ?></label>
+                    <input type="number" id="vsbbm_min_days_advance" name="vsbbm_min_days_advance" value="<?php echo esc_attr($settings['min_days_advance']); ?>" min="0" step="1" style="width: 100%;" />
+                </p>
+                <p>
+                    <label for="vsbbm_max_days_advance"><?php _e('حداکثر روز رزرو از پیش:', 'vs-bus-booking-manager'); ?></label>
+                    <input type="number" id="vsbbm_max_days_advance" name="vsbbm_max_days_advance" value="<?php echo esc_attr($settings['max_days_advance']); ?>" min="0" step="1" style="width: 100%;" />
+                </p>
+                <p>
+                    <label for="vsbbm_departure_time"><?php _e('ساعت حرکت پیش‌فرض:', 'vs-bus-booking-manager'); ?></label>
+                    <input type="text" id="vsbbm_departure_time" name="vsbbm_departure_time" value="<?php echo esc_attr($settings['departure_time']); ?>" placeholder="مثال: 14:30" style="width: 100%;" />
+                </p>
+            </div>
+            <script>
+                jQuery(document).ready(function($) {
+                    $('#vsbbm_enable_schedule').on('change', function() {
+                        $('#vsbbm_schedule_fields').toggle(this.checked);
+                    });
+                });
+            </script>
+        </div>
         <?php
     }
     
-    /**
-     * انکیو کردن اسکریپت‌های فرانت‌اند
-     */
-    public static function enqueue_frontend_scripts() {
-        if (is_product()) {
-            global $post;
-            if (self::is_seat_booking_enabled($post->ID)) {
-                
-                // ما به یک اسکریپت نیاز داریم که انتخاب تاریخ را هندل کند
-                wp_enqueue_script('vsbbm-frontend-date-handler', VSBBM_PLUGIN_URL . 'assets/js/frontend.js', array('jquery'), VSBBM_VERSION, true);
-                
-                // Localize کردن متغیرهای لازم برای جاوااسکریپت
-                wp_localize_script('vsbbm-frontend-date-handler', 'vsbbm_ajax_vars', array(
-                    'ajax_url' => admin_url('admin-ajax.php'),
-                    'nonce' => wp_create_nonce('vsbbm_seat_selection_nonce'),
-                    'loading_text' => esc_html__('در حال بارگذاری صندلی‌ها...', 'vs-bus-booking-manager'),
-                    'select_date_error' => esc_html__('لطفاً یک تاریخ حرکت معتبر انتخاب کنید.', 'vs-bus-booking-manager')
-                ));
-            }
+    public static function save_schedule_settings($post_id) {
+        if (!isset($_POST['vsbbm_enable_schedule'])) {
+            // اگر چک‌باکس ارسال نشده، به معنای غیرفعال بودن است
+            update_post_meta($post_id, '_vsbbm_enable_schedule', 'no');
+            return;
         }
+
+        $enable_schedule = sanitize_text_field($_POST['vsbbm_enable_schedule']);
+        $min_days = absint($_POST['vsbbm_min_days_advance'] ?? 0);
+        $max_days = absint($_POST['vsbbm_max_days_advance'] ?? 365);
+        $departure_time = sanitize_text_field($_POST['vsbbm_departure_time'] ?? '12:00');
+
+        update_post_meta($post_id, '_vsbbm_enable_schedule', $enable_schedule);
+        update_post_meta($post_id, '_vsbbm_min_days_advance', $min_days);
+        update_post_meta($post_id, '_vsbbm_max_days_advance', $max_days);
+        update_post_meta($post_id, '_vsbbm_departure_time', $departure_time);
+    }
+    
+    public static function get_schedule_settings($product_id) {
+        return array(
+            'enable_schedule' => get_post_meta($product_id, '_vsbbm_enable_schedule', true) ?: 'no',
+            'min_days_advance' => get_post_meta($product_id, '_vsbbm_min_days_advance', true) ?: 0,
+            'max_days_advance' => get_post_meta($product_id, '_vsbbm_max_days_advance', true) ?: 365,
+            'departure_time' => get_post_meta($product_id, '_vsbbm_departure_time', true) ?: '12:00',
+        );
     }
 
-
-    // --- توابع نمایش صندلی (فرانت‌اند - گام C) ---
+    /**
+     * استایل‌های ادمین
+     */
+    public static function admin_styles() {
+        // این استایل‌ها فقط برای متاباکس‌های خودمان است.
+        echo '
+        <style>
+            .vsbbm-seat-layout-editor {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                padding: 10px;
+                background: #fcfcfc;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            .vsbbm-seat-layout-editor .vsbbm-seat-row {
+                display: flex;
+                gap: 5px;
+                justify-content: center;
+            }
+            .vsbbm-seat {
+                display: inline-block;
+                width: 30px;
+                height: 30px;
+                line-height: 30px;
+                text-align: center;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                cursor: pointer;
+                background-color: #fff;
+                font-size: 10px;
+                user-select: none;
+                transition: all 0.1s;
+            }
+            .vsbbm-seat:hover {
+                background-color: #f0f0f0;
+            }
+            .vsbbm-seat.active {
+                background-color: #5cb85c;
+                color: #fff;
+                border-color: #4cae4c;
+            }
+            .vsbbm-seat.aisle {
+                background-color: transparent;
+                border: none;
+                cursor: default;
+            }
+            .vsbbm-seat.reserved {
+                background-color: #d9534f;
+                color: #fff;
+                cursor: not-allowed;
+            }
+            .vsbbm-seat.toilet, .vsbbm-seat.door, .vsbbm-seat.none {
+                background-color: #eee;
+                border-color: #ddd;
+                cursor: default;
+                font-size: 8px;
+            }
+            .vsbbm-seat-editor-menu {
+                margin-bottom: 10px;
+            }
+        </style>';
+    }
 
     /**
-     * رندر رابط کاربری انتخاب صندلی
+     * نمایش انتخابگر صندلی در صفحه محصول (فرانت‌اند)
      */
     public static function display_seat_selection() {
         global $product;
-        if (!$product || !self::is_seat_booking_enabled($product->get_id())) {
+
+        if (!self::is_seat_booking_enabled($product->get_id())) {
+            return;
+        }
+        
+        $settings = self::get_product_settings($product->get_id());
+        $schedule_settings = self::get_schedule_settings($product->get_id());
+        $seat_numbers = self::get_seat_numbers($product->get_id());
+        
+        if (empty($seat_numbers)) {
+            echo '<p class="vsbbm-warning">' . __('برای این محصول، چیدمان صندلی تعریف نشده است.', 'vs-bus-booking-manager') . '</p>';
             return;
         }
 
-        $product_id = $product->get_id();
-        $settings = self::get_trip_settings($product_id);
-        $schedule_type = $settings['schedule_type'];
-        $departure_timestamp = ''; 
-        $seat_layout = self::get_seat_numbers($product_id);
+        // --- شروع بخش فرانت‌اند ---
+        ?>
+        <div id="vsbbm-seat-selector" class="vsbbm-seat-selector-container" 
+            data-product-id="<?php echo esc_attr($product->get_id()); ?>"
+            data-rows="<?php echo esc_attr($settings['rows']); ?>"
+            data-cols="<?php echo esc_attr($settings['columns']); ?>"
+            data-type="<?php echo esc_attr($settings['type']); ?>"
+            data-price="<?php echo esc_attr($product->get_price()); ?>"
+            data-schedule-enabled="<?php echo esc_attr($schedule_settings['enable_schedule']); ?>">
 
-        if (empty($seat_layout)) {
-            return;
-        }
+            <?php if ('yes' === $schedule_settings['enable_schedule']): ?>
+            <div class="vsbbm-departure-schedule-picker">
+                <h3><?php _e('انتخاب تاریخ و ساعت حرکت', 'vs-bus-booking-manager'); ?></h3>
+                <input type="text" id="vsbbm_departure_date" placeholder="<?php _e('تاریخ حرکت', 'vs-bus-booking-manager'); ?>" readonly />
+                <input type="text" id="vsbbm_departure_time" value="<?php echo esc_attr($schedule_settings['departure_time']); ?>" readonly />
+                <p id="vsbbm-date-warning" class="vsbbm-warning" style="display: none;"></p>
+                <input type="hidden" id="vsbbm_departure_timestamp" />
+            </div>
+            <?php endif; ?>
 
-        // 1. نمایش انتخابگر تاریخ اگر لازم باشد
-        if ($schedule_type === 'one-time') {
-            // برای سفر یک‌بار مصرف، تاریخ مشخص است و مستقیماً نمایش می‌دهیم
-            $date = $settings['one_time_date'];
-            $time = $settings['one_time_time'];
-            if ($date) {
-                // ساخت timestamp کامل (YYYY-MM-DD HH:MM:SS)
-                $departure_timestamp = "{$date} {$time}:00"; 
-            }
-        } elseif ($schedule_type === 'recurring') {
-            // برای سفر تکرارشونده، انتخابگر تاریخ را نمایش می‌دهیم و نقشه صندلی مخفی می‌ماند
-            self::render_date_selector($product_id, $settings);
-            // از اینجا به بعد، نمایش نقشه صندلی توسط AJAX انجام می‌شود
-            return; 
-        }
+            <div class="vsbbm-seat-layout-display">
+                <h3><?php _e('انتخاب صندلی', 'vs-bus-booking-manager'); ?></h3>
+                <p class="vsbbm-seat-info-message" style="display: none;"><?php _e('ابتدا تاریخ حرکت را انتخاب کنید.', 'vs-bus-booking-manager'); ?></p>
+                <div id="vsbbm-seat-map">
+                    <div class="vsbbm-loading-overlay">
+                        <div class="vsbbm-spinner"></div>
+                        <p><?php _e('در حال بارگذاری چیدمان صندلی...', 'vs-bus-booking-manager'); ?></p>
+                    </div>
+                </div>
+                <div class="vsbbm-legend">
+                    <span><i class="vsbbm-seat available"></i> <?php _e('موجود', 'vs-bus-booking-manager'); ?></span>
+                    <span><i class="vsbbm-seat selected"></i> <?php _e('انتخاب شما', 'vs-bus-booking-manager'); ?></span>
+                    <span><i class="vsbbm-seat reserved"></i> <?php _e('رزرو شده', 'vs-bus-booking-manager'); ?></span>
+                </div>
+            </div>
 
-        // 2. اگر تاریخ مشخص است (open یا one-time)، نقشه صندلی را نمایش می‌دهیم
-        $reserved_seats = array();
-        // برای حالت open، timestamp خالی است و VSBBM_Seat_Reservations::get_reserved_seats همه رزروهای بدون تاریخ را برمی‌گرداند.
-        if (!empty($departure_timestamp) || $schedule_type === 'open') {
-             // فرض می‌کنیم کلاس VSBBM_Seat_Reservations قبلاً include شده است
-            $reserved_seats_data = VSBBM_Seat_Reservations::get_reserved_seats($product_id, $departure_timestamp);
-            $reserved_seats = array_column($reserved_seats_data, 'seat_number');
-        }
+            <div class="vsbbm-passenger-data-form" style="display: none;">
+                <h3><?php _e('اطلاعات مسافران', 'vs-bus-booking-manager'); ?></h3>
+                <div id="vsbbm-passenger-fields">
+                    </div>
+            </div>
 
-        // رندر HTML اصلی نقشه صندلی
-        $args = array(
-            'product_id' => $product_id,
-            'schedule_type' => $schedule_type,
-            'departure_timestamp' => $departure_timestamp,
-            'seat_layout' => $seat_layout,
-            'reserved_seats' => $reserved_seats,
-            'trip_settings' => $settings,
-        );
-        
-        // رندر template (seat-selector.php)
-        wc_get_template('seat-selector.php', $args, '', VSBBM_PLUGIN_PATH . 'templates/');
-    }
-
-    /**
-     * رندر انتخابگر تاریخ برای سفرهای تکرارشونده
-     */
-    public static function render_date_selector($product_id, $settings) {
-        $available_dates = self::calculate_available_dates($settings);
-        
-        // اگر تاریخ‌های موجود خالی باشد، پیام مناسب نمایش داده می‌شود.
-        if (empty($available_dates)) {
-            echo '<div id="vsbbm-date-selector-wrapper" class="vsbbm-error-message">';
-            echo '<h3>' . esc_html__('برنامه حرکت', 'vs-bus-booking-manager') . '</h3>';
-            echo '<p>' . esc_html__('در حال حاضر هیچ سفری در بازه زمانی تعیین شده در دسترس نیست.', 'vs-bus-booking-manager') . '</p>';
-            echo '</div>';
-            return;
-        }
-
-        echo '<div id="vsbbm-date-selector-wrapper" data-product-id="' . esc_attr($product_id) . '" data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '">';
-        echo '<h3>' . esc_html__('انتخاب تاریخ حرکت', 'vs-bus-booking-manager') . '</h3>';
-        
-        echo '<div class="vsbbm-trip-info">';
-        echo '<p><strong>' . esc_html__('مسیر:', 'vs-bus-booking-manager') . '</strong> ' . esc_html($settings['origin']) . ' &rarr; ' . esc_html($settings['destination']) . '</p>';
-        echo '<p><strong>' . esc_html__('ساعت حرکت:', 'vs-bus-booking-manager') . '</strong> ' . esc_html($settings['recurring_time']) . '</p>';
-        echo '</div>';
-
-        echo '<label for="vsbbm_departure_date">' . esc_html__('تاریخ حرکت را انتخاب کنید:', 'vs-bus-booking-manager') . '</label>';
-        echo '<select id="vsbbm_departure_date" class="vsbbm-select-date" name="vsbbm_departure_date" data-product-id="' . esc_attr($product_id) . '">';
-        echo '<option value="">-- ' . esc_html__('انتخاب کنید', 'vs-bus-booking-manager') . ' --</option>';
-        
-        foreach ($available_dates as $date => $day_name) {
-            $timestamp = "{$date} {$settings['recurring_time']}:00";
-            echo '<option value="' . esc_attr($timestamp) . '">' . esc_html("{$day_name}، {$date}") . '</option>';
-        }
-        
-        echo '</select>';
-
-        // Placeholder for the seat map, initially hidden
-        echo '<div id="vsbbm-seat-selector-container" style="min-height: 200px;">' . esc_html__('لطفاً تاریخ حرکت را انتخاب کنید.', 'vs-bus-booking-manager') . '</div>';
-
-        echo '</div>'; 
+            <div class="vsbbm-summary-bar">
+                <span class="vsbbm-summary-item">
+                    <?php _e('صندلی‌های انتخابی:', 'vs-bus-booking-manager'); ?> <strong id="vsbbm-selected-seats-count">0</strong>
+                </span>
+                <span class="vsbbm-summary-item">
+                    <?php _e('مجموع قیمت:', 'vs-bus-booking-manager'); ?> <strong id="vsbbm-total-price"><?php echo wc_price(0); ?></strong>
+                </span>
+                <button type="button" id="vsbbm-add-to-cart-button" class="single_add_to_cart_button button alt" disabled>
+                    <?php _e('رزرو و افزودن به سبد خرید', 'vs-bus-booking-manager'); ?>
+                </button>
+            </div>
+        </div>
+        <?php
+        // --- پایان بخش فرانت‌اند ---
     }
     
-    // --- توابع AJAX (گام C) ---
-
     /**
-     * ثبت هوک‌های AJAX
-     */
-    public static function register_ajax_handlers() {
-        
-        // هندلرهای موجود
-        add_action('wp_ajax_vsbbm_get_passenger_fields', array(__CLASS__, 'get_passenger_fields_ajax'));
-        add_action('wp_ajax_nopriv_vsbbm_get_passenger_fields', array(__CLASS__, 'get_passenger_fields_ajax'));
-        
-        add_action('wp_ajax_vsbbm_add_to_cart', array(__CLASS__, 'add_to_cart_ajax'));
-        add_action('wp_ajax_nopriv_vsbbm_add_to_cart', array(__CLASS__, 'add_to_cart_ajax'));
-
-        // *** هندلر جدید برای بارگذاری صندلی بر اساس تاریخ ***
-        add_action('wp_ajax_vsbbm_get_seat_data', array(__CLASS__, 'get_seat_data_ajax'));
-        add_action('wp_ajax_nopriv_vsbbm_get_seat_data', array(__CLASS__, 'get_seat_data_ajax'));
-    }
-
-    /**
-     * دریافت داده‌های صندلی‌ها بر اساس تاریخ حرکت (AJAX)
-     */
-    public static function get_seat_data_ajax() {
-        // بررسی امنیتی
-        if (!isset($_POST['product_id']) || !isset($_POST['departure_timestamp'])) {
-            wp_send_json_error(array('message' => __('تاریخ حرکت یا شناسه محصول مشخص نشده است.', 'vs-bus-booking-manager')));
-        }
-        
-        $product_id = intval($_POST['product_id']);
-        $departure_timestamp = sanitize_text_field($_POST['departure_timestamp']); 
-
-        // 1. دریافت تنظیمات محصول
-        $settings = self::get_trip_settings($product_id);
-        $seat_layout = self::get_seat_numbers($product_id);
-        
-        if (empty($seat_layout)) {
-             wp_send_json_error(array('message' => __('چیدمان صندلی برای این محصول تعریف نشده است.', 'vs-bus-booking-manager')));
-        }
-
-        // 2. دریافت صندلی‌های رزرو شده (با فیلتر تاریخ)
-        if (class_exists('VSBBM_Seat_Reservations')) {
-            $reserved_seats_data = VSBBM_Seat_Reservations::get_reserved_seats($product_id, $departure_timestamp);
-        } else {
-             wp_send_json_error(array('message' => __('خطا: ماژول رزرو صندلی در دسترس نیست.', 'vs-bus-booking-manager')));
-        }
-        
-        // 3. آماده‌سازی داده‌ها برای رندر
-        $reserved_seats = array_column($reserved_seats_data, 'seat_number');
-
-        // 4. رندر و ارسال HTML (استفاده از seat-selector.php)
-        ob_start();
-        wc_get_template('seat-selector.php', array(
-            'product_id' => $product_id,
-            'seat_layout' => $seat_layout,
-            'reserved_seats' => $reserved_seats,
-            'departure_timestamp' => $departure_timestamp,
-            'trip_settings' => $settings,
-        ), '', VSBBM_PLUGIN_PATH . 'templates/');
-        $html = ob_get_clean();
-
-        wp_send_json_success(array(
-            'html' => $html,
-            'reserved_seats' => $reserved_seats,
-            'timestamp' => $departure_timestamp,
-            'origin' => $settings['origin'],
-            'destination' => $settings['destination'],
-        ));
-    }
-    
-    // --- توابع کمکی اصلی (موجود در فایل اصلی کاربر) ---
-    
-    /**
-     * دریافت آرایه چیدمان صندلی
-     */
-    public static function get_seat_numbers($product_id, $as_json = false) {
-        $seat_layout = get_post_meta($product_id, '_vsbbm_seat_numbers', true);
-
-        if (empty($seat_layout)) {
-            return $as_json ? '[]' : array();
-        }
-
-        if ($as_json) {
-            return $seat_layout;
-        }
-
-        // تبدیل JSON به آرایه PHP
-        $seats_array = json_decode($seat_layout, true);
-        
-        // اگر JSON دیکود نشد یا خالی بود
-        if (json_last_error() !== JSON_ERROR_NONE || !is_array($seats_array)) {
-            return array();
-        }
-        
-        return $seats_array;
-    }
-
-    /**
-     * بررسی فعال بودن رزرو صندلی برای محصول
+     * بررسی اینکه آیا سیستم رزرو صندلی فعال است یا خیر
      */
     public static function is_seat_booking_enabled($product_id) {
-        return 'yes' === get_post_meta($product_id, '_vsbbm_enable_seat_booking', true);
-    }
-    
-    /**
-     * دریافت وضعیت دسترسی محصول
-     */
-    public static function get_product_availability_status($product_id) {
-        // (این تابع باید منطق اصلی شما را داشته باشد)
-        return 'available'; 
+        return get_post_meta($product_id, '_vsbbm_enable_seat_booking', true) === 'yes';
     }
 
     /**
-     * دریافت فیلدهای مسافر برای نمایش در فرانت‌اند (AJAX)
+     * دریافت تنظیمات چیدمان محصول
      */
-    public static function get_passenger_fields_ajax() {
+    public static function get_product_settings($product_id) {
+        return array(
+            'rows' => (int) get_post_meta($product_id, '_vsbbm_bus_rows', true) ?: 10,
+            'columns' => (int) get_post_meta($product_id, '_vsbbm_bus_columns', true) ?: 2,
+            'type' => get_post_meta($product_id, '_vsbbm_bus_type', true) ?: '2x2',
+        );
+    }
+    
+    /**
+     * دریافت شماره صندلی‌های تعریف شده
+     */
+    public static function get_seat_numbers($product_id) {
+        $seats = get_post_meta($product_id, '_vsbbm_seat_numbers', true);
+        return is_array($seats) ? $seats : array();
+    }
+    
+    /**
+     * دریافت صندلی‌های رزرو شده برای تاریخ حرکت مشخص
+     */
+    public static function get_reserved_seats($product_id, $departure_timestamp = null) {
+        if (!class_exists('VSBBM_Seat_Reservations')) {
+            return array(); // اگر کلاس رزرو لود نشده بود
+        }
         
-        // مثال داده‌های فیلد (باید با داده‌های واقعی پلاگین شما مطابقت داشته باشد)
-        $fields = array(
-            array('type' => 'text', 'label' => esc_html__('نام و نام خانوادگی', 'vs-bus-booking-manager'), 'required' => true, 'placeholder' => esc_html__('نام کامل مسافر', 'vs-bus-booking-manager'), 'locked' => false),
-            array('type' => 'text', 'label' => esc_html__('کد ملی', 'vs-bus-booking-manager'), 'required' => true, 'placeholder' => esc_html__('کد ملی ۱۰ رقمی', 'vs-bus-booking-manager'), 'locked' => true),
-            array('type' => 'tel', 'label' => esc_html__('شماره تماس', 'vs-bus-booking-manager'), 'required' => true, 'placeholder' => '09xxxxxxxxx', 'locked' => false),
+        if (empty($departure_timestamp)) {
+            // اگر timestamp ارسال نشده، تاریخ امروز را با ساعت پیش‌فرض محصول در نظر می‌گیرد
+            $settings = self::get_schedule_settings($product_id);
+            list($hour, $minute) = explode(':', $settings['departure_time']);
+            $current_date = date('Y-m-d');
+            $departure_timestamp = strtotime("$current_date $hour:$minute");
+        }
+        
+        return VSBBM_Seat_Reservations::get_reserved_seats_by_product_and_time($product_id, $departure_timestamp);
+    }
+
+    /**
+     * AJAX: دریافت لیست صندلی‌های رزرو شده (برای فرانت‌اند)
+     */
+    public static function get_reserved_seats_ajax() {
+        check_ajax_referer('vsbbm_seat_nonce', 'nonce');
+        
+        $product_id = absint($_POST['product_id'] ?? 0);
+        $departure_timestamp = absint($_POST['departure_timestamp'] ?? 0);
+
+        if (!$product_id || !$departure_timestamp) {
+            wp_send_json_error(array('message' => __('داده‌های محصول یا تاریخ حرکت نامعتبر است.', 'vs-bus-booking-manager')));
+        }
+        
+        // استفاده از کلاس کش
+        if (class_exists('VSBBM_Cache_Manager')) {
+            $cache_key = 'reserved_seats_' . $product_id . '_' . $departure_timestamp;
+            $cached_data = VSBBM_Cache_Manager::get_instance()->get_cache($cache_key);
+
+            if ($cached_data !== false) {
+                // اگر از کش استفاده شد، شمارنده بازدید کش را افزایش بده
+                VSBBM_Cache_Manager::get_instance()->increment_cache_hit(); 
+                wp_send_json_success($cached_data);
+            }
+            // شمارنده درخواست‌ها را افزایش بده
+            VSBBM_Cache_Manager::get_instance()->increment_total_requests();
+        }
+
+        // 1. دریافت صندلی‌های رزرو شده واقعی
+        $reserved_seats = self::get_reserved_seats($product_id, $departure_timestamp);
+        
+        // 2. دریافت صندلی‌های در حال رزرو (سبد خرید)
+        if (class_exists('VSBBM_Seat_Reservations')) {
+            $temp_reserved_seats = VSBBM_Seat_Reservations::get_temp_reserved_seats_for_product_and_time($product_id, $departure_timestamp);
+            // ادغام صندلی‌های رزرو شده با صندلی‌های موقت
+            $reserved_seats = array_merge($reserved_seats, $temp_reserved_seats);
+        }
+
+        // 3. دریافت تمام صندلی‌های تعریف شده
+        $all_seats = self::get_seat_numbers($product_id);
+        
+        // ترکیب داده‌ها
+        $response_data = array(
+            'reserved' => array_keys($reserved_seats),
+            'all_seats' => $all_seats,
         );
         
+        // ذخیره در کش
+        if (class_exists('VSBBM_Cache_Manager')) {
+            VSBBM_Cache_Manager::get_instance()->set_cache($cache_key, $response_data, 60); // کش برای ۱ دقیقه
+        }
+
+        wp_send_json_success($response_data);
+    }
+    
+    /**
+     * AJAX: دریافت فیلدهای مسافر (برای فرانت‌اند)
+     */
+    public static function get_passenger_fields_ajax() {
+        // عدم نیاز به nonce برای این فراخوانی ساده
+        
+        $cache_key = 'passenger_fields';
+        if (class_exists('VSBBM_Cache_Manager')) {
+            $cached_fields = VSBBM_Cache_Manager::get_instance()->get_cache($cache_key);
+            if ($cached_fields !== false) {
+                VSBBM_Cache_Manager::get_instance()->increment_cache_hit();
+                wp_send_json_success($cached_fields);
+            }
+            VSBBM_Cache_Manager::get_instance()->increment_total_requests();
+        }
+
+        // تعریف فیلدهای مسافران
+        $fields = apply_filters('vsbbm_passenger_fields', array(
+            array('type' => 'text', 'label' => 'نام و نام خانوادگی', 'required' => true, 'placeholder' => 'نام کامل مسافر'),
+            array('type' => 'text', 'label' => 'کد ملی', 'required' => true, 'placeholder' => 'کد ملی ۱۰ رقمی'),
+            array('type' => 'tel', 'label' => 'شماره تماس', 'required' => false, 'placeholder' => '09xxxxxxxxx'),
+        ));
+
         // کش برای ۱ ساعت
-        $cache_key = 'vsbbm_passenger_fields';
-        set_transient($cache_key, $fields, 3600); 
+        if (class_exists('VSBBM_Cache_Manager')) {
+            VSBBM_Cache_Manager::get_instance()->set_cache($cache_key, $fields, 3600);
+        }
 
         wp_send_json_success($fields);
     }
-    
+
     /**
-     * افزودن به سبد خرید (AJAX) - به‌روزرسانی شده برای تاریخ حرکت
+     * AJAX: افزودن به سبد خرید از طریق رزرو صندلی
      */
     public static function add_to_cart_ajax() {
-        
-        if (!isset($_POST['product_id']) || !isset($_POST['selected_seats']) || !isset($_POST['passengers_data']) || !isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'vsbbm_seat_selection_nonce')) {
-            wp_send_json_error(array('message' => esc_html__('داده‌های ورودی نامعتبر است.', 'vs-bus-booking-manager')));
-        }
-        
-        $product_id = intval($_POST['product_id']);
-        $selected_seats = (array) $_POST['selected_seats'];
-        $passengers_data = (array) $_POST['passengers_data'];
-        $departure_timestamp = isset($_POST['vsbbm_departure_timestamp']) ? sanitize_text_field($_POST['vsbbm_departure_timestamp']) : ''; // <-- گرفتن تاریخ حرکت
-
-        // 1. بررسی اعتبارسنجی‌ها
-        if (count($selected_seats) !== count($passengers_data)) {
-            wp_send_json_error(array('message' => esc_html__('تعداد صندلی‌ها و مسافران باید یکسان باشد.', 'vs-bus-booking-manager')));
-        }
-        
-        // آماده‌سازی داده برای رزرو
-        $seats_data_for_reservation = array();
-        for ($i = 0; $i < count($selected_seats); $i++) {
-            $seats_data_for_reservation[] = array(
-                'seat_number' => $selected_seats[$i],
-                'passenger_data' => $passengers_data[$i],
-            );
+        // 1. بررسی nonce و security
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field($_POST['nonce']), 'vsbbm_seat_nonce')) {
+            wp_send_json_error(array('message' => __('Security check failed.', 'vs-bus-booking-manager')));
         }
 
-        // 2. رزرو صندلی موقت در دیتابیس (استفاده از کلاس VSBBM_Seat_Reservations)
-        if (class_exists('VSBBM_Seat_Reservations')) {
-            $reservation_result = VSBBM_Seat_Reservations::reserve_seats(
-                $product_id, 
-                $departure_timestamp, // ارسال تاریخ حرکت
-                $seats_data_for_reservation, 
-                15 // 15 دقیقه رزرو موقت
-            );
-            
-            if (is_wp_error($reservation_result)) {
-                wp_send_json_error(array('message' => $reservation_result->get_error_message()));
+        $product_id = absint($_POST['product_id'] ?? 0);
+        $selected_seats = json_decode(wp_kses_post(wp_unslash($_POST['selected_seats'] ?? '[]')), true);
+        $passengers_data = json_decode(wp_kses_post(wp_unslash($_POST['passengers_data'] ?? '[]')), true);
+        $departure_timestamp = absint($_POST['departure_timestamp'] ?? 0);
+
+        if (!$product_id || empty($selected_seats) || count($selected_seats) !== count($passengers_data)) {
+            wp_send_json_error(array('message' => __('لطفاً صندلی‌ها را انتخاب کرده و اطلاعات همه مسافران را تکمیل کنید.', 'vs-bus-booking-manager')));
+        }
+        
+        if (!class_exists('VSBBM_Seat_Reservations') || !class_exists('VSBBM_Booking_Handler')) {
+             wp_send_json_error(array('message' => __('خطا: ماژول‌های اصلی پلاگین لود نشده‌اند.', 'vs-bus-booking-manager')));
+        }
+
+        // 2. رزرو موقت صندلی‌ها
+        $reservation_keys = array();
+        foreach ($selected_seats as $seat_number) {
+            $reservation_key = VSBBM_Seat_Reservations::reserve_seat($product_id, $seat_number, $departure_timestamp);
+            if (is_wp_error($reservation_key)) {
+                // اگر رزرو موقت ناموفق بود (مثلاً صندلی قبلاً رزرو شده)
+                // رزروهای موقت قبلی را لغو می‌کنیم و خطا می‌دهیم
+                if (!empty($reservation_keys)) {
+                    VSBBM_Seat_Reservations::cancel_reservations_by_keys($reservation_keys);
+                }
+                wp_send_json_error(array('message' => sprintf(__('صندلی %s قبلاً رزرو شده است. لطفاً صندلی دیگری انتخاب کنید.', 'vs-bus-booking-manager'), $seat_number)));
             }
-            
-            $reservation_keys = $reservation_result;
-        } else {
-            wp_send_json_error(array('message' => esc_html__('خطا در ماژول رزرو صندلی.', 'vs-bus-booking-manager')));
+            $reservation_keys[] = $reservation_key;
+        }
+        
+        if (empty($reservation_keys)) {
+             wp_send_json_error(array('message' => __('خطا در ماژول رزرو صندلی.', 'vs-bus-booking-manager')));
         }
 
         // 3. افزودن به سبد خرید ووکامرس
@@ -715,14 +662,40 @@ class VSBBM_Seat_Manager {
         } else {
             // در صورت خطا در افزودن به سبد، رزروهای موقت را لغو می‌کنیم
             VSBBM_Seat_Reservations::cancel_reservations_by_keys($reservation_keys);
-            wp_send_json_error(array('message' => esc_html__('خطا در افزودن محصول به سبد خرید.', 'vs-bus-booking-manager')));
+            wp_send_json_error(array('message' => __('خطا در افزودن به سبد خرید. لطفاً دوباره تلاش کنید.', 'vs-bus-booking-manager')));
         }
     }
+
+/**
+ * ثبت هوک‌های AJAX
+ */
+public static function register_ajax_handlers() {
+    add_action('wp_ajax_vsbbm_get_passenger_fields', array(__CLASS__, 'get_passenger_fields_ajax'));
+    add_action('wp_ajax_nopriv_vsbbm_get_passenger_fields', array(__CLASS__, 'get_passenger_fields_ajax'));
     
+    add_action('wp_ajax_vsbbm_get_reserved_seats', array(__CLASS__, 'get_reserved_seats_ajax'));
+    add_action('wp_ajax_nopriv_vsbbm_get_reserved_seats', array(__CLASS__, 'get_reserved_seats_ajax'));
+    
+    // افزودن AJAX handler برای add to cart
+    add_action('wp_ajax_vsbbm_add_to_cart', array(__CLASS__, 'add_to_cart_ajax'));
+    add_action('wp_ajax_nopriv_vsbbm_add_to_cart', array(__CLASS__, 'add_to_cart_ajax'));
+}
+
     /**
      * بررسی صفحه محصول برای دیباگ
      */
     public static function check_product_page($content) {
+        if (is_product()) {
+            global $product;
+            if (self::is_seat_booking_enabled($product->get_id())) {
+                // اگر فعال بود، پیامی برای دیباگ نمایش می‌دهد (اختیاری)
+                // return $content . '<p style="color: green;">[VSBBM] Seat Booking Enabled.</p>';
+            }
+        }
         return $content;
     }
-}
+
+} // <-- پایان کلاس VSBBM_Seat_Manager
+
+// فراخوانی متد init برای ثبت هوک‌ها
+VSBBM_Seat_Manager::init();
