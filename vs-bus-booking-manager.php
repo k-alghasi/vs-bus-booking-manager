@@ -61,6 +61,15 @@ class VS_Bus_Booking_Manager {
         // 4. Admin & API
         require_once VSBBM_PLUGIN_PATH . 'includes/class-admin-interface.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
+        
+        // 5.Load Elementor Widget only if Elementor is active
+        require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
+        
+        add_action('plugins_loaded', function() {
+            if ( did_action( 'elementor/loaded' ) ) {
+                require_once VSBBM_PLUGIN_PATH . 'includes/class-elementor-integration.php';
+            }
+        });
     }
 
     private function init_hooks() {
