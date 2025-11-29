@@ -1,159 +1,233 @@
 <?php
 /**
- * Plugin Name: vsBus Booking Manager
- * Plugin URI:  https://vernasoft.ir
- * Description: سیستم رزرواسیون صندلی اتوبوس با انتخاب گرافیکی و لیست سیاه
- * Version:     1.9.1
- * Author:      VernaSoft (Kazem Alghasi)
- * Author URI:  https://vernasoft.ir
- * Text Domain: vs-bus-booking-manager
- * License:     GPL v2 or later
- * License URI: http://www.gnu.org/licenses/gpl-2.0.txt
+ * Plugin Name:       vsBus Booking Manager
+ * Plugin URI:        https://vernasoft.ir
+ * Description:       Bus seat reservation system with graphical selection and blacklist management.
+ * Version:           1.9.1
+ * Author:            VernaSoft (Kazem Alghasi)
+ * Author URI:        https://vernasoft.ir
+ * Text Domain:       vs-bus-booking-manager
+ * Domain Path:       /languages
+ * Requires at least: 5.6
+ * Requires PHP:      7.4
+ * License:           GPL v2 or later
+ * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  */
 
-defined('ABSPATH') || exit;
+// جلوگیری از دسترسی مستقیم
+defined( 'ABSPATH' ) || exit;
 
 // تعریف ثابت‌های پلاگین
-define('VSBBM_VERSION', '1.9.1');
-define('VSBBM_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('VSBBM_PLUGIN_PATH', plugin_dir_path(__FILE__));
+if ( ! defined( 'VSBBM_VERSION' ) ) {
+    define( 'VSBBM_VERSION', '1.9.1' );
+}
+if ( ! defined( 'VSBBM_PLUGIN_URL' ) ) {
+    define( 'VSBBM_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+}
+if ( ! defined( 'VSBBM_PLUGIN_PATH' ) ) {
+    define( 'VSBBM_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
+}
+if ( ! defined( 'VSBBM_TEXT_DOMAIN' ) ) {
+    define( 'VSBBM_TEXT_DOMAIN', 'vs-bus-booking-manager' );
+}
 
-// کلاس اصلی پلاگین
+/**
+ * Main Plugin Class
+ *
+ * @since 1.0.0
+ */
 class VS_Bus_Booking_Manager {
-    
+
+    /**
+     * Singleton instance
+     *
+     * @var VS_Bus_Booking_Manager|null
+     */
     private static $instance = null;
-    
+
+    /**
+     * Get the singleton instance.
+     *
+     * @return VS_Bus_Booking_Manager
+     */
     public static function get_instance() {
-        if (null === self::$instance) {
+        if ( null === self::$instance ) {
             self::$instance = new self();
         }
         return self::$instance;
     }
-    
+
+    /**
+     * Constructor.
+     */
     private function __construct() {
+        if ( ! this->check_requirements() ) {
+            return;
+        }
+
+        $this->load_dependencies();
         $this->init_hooks();
-        $this->includes();
     }
-    
+
+    /**
+     * Check server requirements.
+     *
+     * @return bool
+     */
+    private function check_requirements() {
+        if ( version_compare( PHP_VERSION, '7.4', '<' ) ) {
+            add_action( 'admin_notices', function() {
+                echo '<div class="error"><p>' . esc_html__( 'VS Bus Booking Manager requires PHP 7.4 or higher.', 'vs-bus-booking-manager' ) . '</p></div>';
+            });
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Load required files.
+     */
+    private function load_dependencies() {
+        $files = array(
+            'includes/class-blacklist.php',
+            'includes/class-seat-manager.php',
+            'includes/class-seat-reservations.php',
+            'includes/class-booking-handler.php',
+            'includes/class-admin-interface.php',
+            'includes/class-email-notifications.php',
+            'includes/class-ticket-manager.php',
+            'includes/class-sms-notifications.php',
+            'includes/class-rest-api.php',
+            'includes/class-license-manager.php',
+            'includes/class-cache-manager.php',
+        );
+
+        foreach ( $files as $file ) {
+            if ( file_exists( VSBBM_PLUGIN_PATH . $file ) ) {
+                require_once VSBBM_PLUGIN_PATH . $file;
+            }
+        }
+    }
+
+    /**
+     * Initialize hooks.
+     */
     private function init_hooks() {
-        register_activation_hook(__FILE__, array($this, 'activate'));
-        register_deactivation_hook(__FILE__, array($this, 'deactivate'));
-        
-        add_action('init', array($this, 'init'));
-        add_action('admin_init', array($this, 'admin_init'));
+        register_activation_hook( __FILE__, array( $this, 'activate' ) );
+        register_deactivation_hook( __FILE__, array( $this, 'deactivate' ) );
+
+        add_action( 'init', array( $this, 'init' ) );
+        add_action( 'admin_init', array( $this, 'admin_init' ) );
     }
-    
-    private function includes() {
-        // بارگذاری تمام کلاس‌های مورد نیاز
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-blacklist.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-manager.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-reservations.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-booking-handler.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-admin-interface.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-email-notifications.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-ticket-manager.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-sms-notifications.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-license-manager.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-cache-manager.php';
-    }
-    
+
+    /**
+     * Activation logic.
+     */
     public function activate() {
-        // ایجاد جداول هنگام فعال‌سازی
-        if (class_exists('VSBBM_Blacklist')) {
-            VSBBM_Blacklist::create_table();
+        // ایجاد جداول کلاس‌های دیگر
+        $classes_with_tables = array(
+            'VSBBM_Blacklist',
+            'VSBBM_Seat_Reservations',
+            'VSBBM_Ticket_Manager'
+        );
+
+        foreach ( $classes_with_tables as $class_name ) {
+            if ( class_exists( $class_name ) && method_exists( $class_name, 'create_table' ) ) {
+                call_user_func( array( $class_name, 'create_table' ) );
+            }
         }
 
-        if (class_exists('VSBBM_Seat_Reservations')) {
-            VSBBM_Seat_Reservations::create_table();
-        }
-        
-        if (class_exists('VSBBM_Ticket_Manager')) {
-            VSBBM_Ticket_Manager::create_table();
-        }
-
-        // ایجاد جدول API tokens
+        // ایجاد جدول توکن‌ها (بهتر است این متد هم به یک کلاس Install منتقل شود)
         $this->create_api_tokens_table();
 
         flush_rewrite_rules();
     }
 
     /**
-     * ایجاد جدول API tokens با استفاده استاندارد از dbDelta
+     * Create API tokens table with strict dbDelta syntax.
      */
     private function create_api_tokens_table() {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'vsbbm_api_tokens';
+        $table_name      = $wpdb->prefix . 'vsbbm_api_tokens';
         $charset_collate = $wpdb->get_charset_collate();
 
+        // نکته مهم: dbDelta به دو فاصله بعد از PRIMARY KEY نیاز دارد
+        // و هر فیلد باید در یک خط جداگانه باشد.
         $sql = "CREATE TABLE $table_name (
             id int(11) NOT NULL AUTO_INCREMENT,
             user_id bigint(20) unsigned NOT NULL,
             token varchar(255) NOT NULL,
             expires_at datetime NOT NULL,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             UNIQUE KEY token (token),
             KEY user_id (user_id),
             KEY expires_at (expires_at)
         ) $charset_collate;";
 
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-        dbDelta($sql);
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta( $sql );
     }
 
+    /**
+     * Deactivation logic.
+     */
     public function deactivate() {
         flush_rewrite_rules();
     }
-    
+
+    /**
+     * Core initialization.
+     */
     public function init() {
-        // بارگذاری فایل ترجمه
-        load_plugin_textdomain('vs-bus-booking-manager', false, dirname(plugin_basename(__FILE__)) . '/languages');
+        // بارگذاری ترجمه‌ها
+        load_plugin_textdomain( 'vs-bus-booking-manager', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
 
-        // مقداردهی اولیه ماژول‌ها
-        // error_log('🎯 VSBBM: Main init called'); // کامنت شده برای جلوگیری از شلوغی لاگ
+        // لیست کلاس‌هایی که نیاز به init دارند
+        $modules = array(
+            'VSBBM_Seat_Manager',
+            'VSBBM_Blacklist',
+            'VSBBM_Booking_Handler',
+            'VSBBM_Admin_Interface',
+            'VSBBM_Seat_Reservations',
+        );
 
-        if (class_exists('VSBBM_Seat_Manager')) {
-            VSBBM_Seat_Manager::init();
+        foreach ( $modules as $module ) {
+            if ( class_exists( $module ) && method_exists( $module, 'init' ) ) {
+                call_user_func( array( $module, 'init' ) );
+            }
         }
-
-        if (class_exists('VSBBM_Blacklist')) {
-            VSBBM_Blacklist::init();
-        }
-
-        if (class_exists('VSBBM_Booking_Handler')) {
-            VSBBM_Booking_Handler::init();
-        }
-
-        if (class_exists('VSBBM_Admin_Interface')) {
-            VSBBM_Admin_Interface::init();
-        }
-
-        // مقداردهی اولیه سیستم رزرواسیون
-        if (class_exists('VSBBM_Seat_Reservations')) {
-            VSBBM_Seat_Reservations::init();
-        }
-
-        // سایر کلاس‌ها (Email, Ticket, SMS, API) معمولاً خودکار یا با get_instance در انتهای فایل‌هایشان لود می‌شوند
-        // اما چک کردن وجودشان ضرری ندارد
     }
-    
+
+    /**
+     * Admin specific initialization.
+     */
     public function admin_init() {
-        // اضافه کردن لینک تنظیمات به صفحه پلاگین‌ها
-        add_filter('plugin_action_links_' . plugin_basename(__FILE__), array($this, 'add_settings_link'));
+        add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), array( $this, 'add_settings_link' ) );
     }
-    
-    public function add_settings_link($links) {
-        $settings_link = '<a href="' . admin_url('admin.php?page=vsbbm-settings') . '">' . __('تنظیمات', 'vs-bus-booking-manager') . '</a>';
-        array_unshift($links, $settings_link);
+
+    /**
+     * Add settings link to plugins page.
+     *
+     * @param array $links Existing links.
+     * @return array Modified links.
+     */
+    public function add_settings_link( $links ) {
+        // تغییر مهم: متن انگلیسی برای ترجمه‌پذیری
+        $settings_link = '<a href="' . admin_url( 'admin.php?page=vsbbm-settings' ) . '">' . __( 'Settings', 'vs-bus-booking-manager' ) . '</a>';
+        array_unshift( $links, $settings_link );
         return $links;
     }
 }
 
-// تابع دسترسی جهانی به پلاگین
+/**
+ * Main instance wrapper.
+ *
+ * @return VS_Bus_Booking_Manager
+ */
 function VSBBM() {
     return VS_Bus_Booking_Manager::get_instance();
 }
 
-// راه‌اندازی نهایی
+// Start the plugin
 VSBBM();
