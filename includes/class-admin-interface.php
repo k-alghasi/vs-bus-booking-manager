@@ -98,16 +98,31 @@ class VSBBM_Admin_Interface {
     }
 
     /**
-     * Enqueue Admin Scripts (Includes Scanner Logic).
+     * Enqueue Admin Scripts (Includes Scanner and Dashboard Data).
      */
     public function enqueue_admin_scripts( $hook ) {
+        // فقط در صفحات پلاگین لود شود
         if ( strpos( $hook, 'vsbbm-' ) !== false ) {
-            wp_enqueue_style( 'vsbbm-admin', VSBBM_PLUGIN_URL . 'assets/css/admin.css', array(), VSBBM_VERSION );
-            wp_enqueue_script( 'vsbbm-admin', VSBBM_PLUGIN_URL . 'assets/js/admin.js', array( 'jquery' ), VSBBM_VERSION, true );
             
-            // Scanner Scripts (Load only on scanner page)
+            // 1. استایل‌ها
+            wp_enqueue_style( 'vsbbm-admin', VSBBM_PLUGIN_URL . 'assets/css/admin.css', array(), VSBBM_VERSION );
+
+            // 2. وابستگی‌های جاوااسکریپت (Dependencies)
+            $js_deps = array( 'jquery' );
+
+            // اگر در صفحه داشبورد هستیم، Chart.js را اضافه کن
+            if ( strpos( $hook, 'vsbbm-dashboard' ) !== false ) {
+                // استفاده از نسخه پایدار 4.4.0
+                wp_enqueue_script( 'chart-js', 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js', array(), '4.4.0', true );
+                $js_deps[] = 'chart-js'; // اضافه کردن به پیش‌نیازهای فایل اصلی
+            }
+
+            // اگر در صفحه اسکنر هستیم، کتابخانه QR را اضافه کن
             if ( strpos( $hook, 'vsbbm-scanner' ) !== false ) {
                 wp_enqueue_script( 'html5-qrcode', 'https://unpkg.com/html5-qrcode', array(), '2.3.8', true );
+                $js_deps[] = 'html5-qrcode';
+                
+                // اسکریپت جداگانه اسکنر (اختیاری: یا می‌توان همه را در admin.js ادغام کرد)
                 wp_enqueue_script( 'vsbbm-scanner', VSBBM_PLUGIN_URL . 'assets/js/scanner.js', array( 'jquery', 'html5-qrcode' ), VSBBM_VERSION, true );
                 wp_localize_script( 'vsbbm-scanner', 'vsbbm_scanner_vars', array(
                     'ajax_url' => admin_url( 'admin-ajax.php' ),
@@ -115,13 +130,107 @@ class VSBBM_Admin_Interface {
                 ));
             }
 
-            // General Admin Logic
+            // 3. فایل اصلی جاوااسکریپت ادمین (با وابستگی‌های تعریف شده)
+            wp_enqueue_script( 'vsbbm-admin', VSBBM_PLUGIN_URL . 'assets/js/admin.js', $js_deps, VSBBM_VERSION, true );
+
+            // 4. ارسال داده‌ها به JS
+            $chart_data = array();
+            if ( strpos( $hook, 'vsbbm-dashboard' ) !== false ) {
+                $chart_data = $this->get_dashboard_data();
+            }
+
             wp_localize_script( 'vsbbm-admin', 'vsbbm_admin', array(
-                'ajax_url' => admin_url( 'admin-ajax.php' ),
-                'nonce'    => wp_create_nonce( 'vsbbm_admin_nonce' ),
-                'i18n'     => array( 'confirm_delete' => __( 'Are you sure?', 'vs-bus-booking-manager' ) )
+                'ajax_url'   => admin_url( 'admin-ajax.php' ),
+                'nonce'      => wp_create_nonce( 'vsbbm_admin_nonce' ),
+                'i18n'       => array( 'confirm_delete' => __( 'Are you sure?', 'vs-bus-booking-manager' ) ),
+                'chart_data' => $chart_data
             ));
         }
+    }
+
+    /**
+     * دریافت آمار سریع (کارت‌های بالای صفحه)
+     */
+    private function get_quick_stats() {
+        global $wpdb;
+        $tickets_table = $wpdb->prefix . 'vsbbm_tickets';
+        
+        // 1. تعداد کل بلیط‌ها
+        $total_tickets = $wpdb->get_var( "SELECT COUNT(*) FROM $tickets_table" );
+
+        // 2. درآمد کل (از سفارشات ووکامرس مربوط به بلیط‌ها)
+        // یک کوئری تقریبی اما سریع
+        $total_revenue = $wpdb->get_var( "
+            SELECT SUM(pm.meta_value) 
+            FROM {$wpdb->postmeta} pm
+            JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+            WHERE p.post_type = 'shop_order' 
+            AND p.post_status IN ('wc-completed', 'wc-processing')
+            AND pm.meta_key = '_order_total'
+            AND EXISTS (SELECT 1 FROM {$wpdb->prefix}woocommerce_order_items oi WHERE oi.order_id = p.ID)
+        " );
+
+        // 3. تعداد سفرهای فعال (محصولات اتوبوسی)
+        $active_trips = count( get_posts( array(
+            'post_type' => 'product',
+            'meta_key' => '_vsbbm_enable_seat_booking',
+            'meta_value' => 'yes',
+            'posts_per_page' => -1
+        )));
+
+        return array(
+            'tickets' => $total_tickets ? $total_tickets : 0,
+            'revenue' => $total_revenue ? $total_revenue : 0,
+            'trips'   => $active_trips
+        );
+    }
+
+    /**
+     * دریافت داده‌های نمودار برای JS
+     */
+    private function get_dashboard_data() {
+        global $wpdb;
+        $tickets_table = $wpdb->prefix . 'vsbbm_tickets';
+
+        // 1. نمودار دایره‌ای وضعیت بلیط‌ها
+        $status_counts = $wpdb->get_results( "SELECT status, COUNT(*) as count FROM $tickets_table GROUP BY status" );
+        $status_data = array( 'active' => 0, 'used' => 0, 'expired' => 0, 'cancelled' => 0 );
+        foreach ( $status_counts as $row ) {
+            $status_data[ $row->status ] = $row->count;
+        }
+
+        // 2. نمودار خطی فروش ۷ روز گذشته
+        $sales_data = array();
+        $labels = array();
+        
+        for ( $i = 6; $i >= 0; $i-- ) {
+            $date = date( 'Y-m-d', strtotime( "-$i days" ) );
+            $labels[] = date_i18n( 'l', strtotime( $date ) ); // نام روز هفته (شنبه، ...)
+            
+            // جمع مبلغ سفارشات تکمیل شده در آن روز
+            $daily_sales = $wpdb->get_var( $wpdb->prepare( "
+                SELECT SUM(pm.meta_value) 
+                FROM {$wpdb->postmeta} pm
+                JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+                WHERE p.post_type = 'shop_order' 
+                AND p.post_status IN ('wc-completed', 'wc-processing')
+                AND pm.meta_key = '_order_total'
+                AND DATE(p.post_date) = %s
+            ", $date ) );
+            
+            $sales_data[] = $daily_sales ? $daily_sales : 0;
+        }
+
+        return array(
+            'status' => array(
+                'labels' => array( __( 'Active', 'vs-bus-booking-manager' ), __( 'Used', 'vs-bus-booking-manager' ), __( 'Expired', 'vs-bus-booking-manager' ) ),
+                'data'   => array( $status_data['active'], $status_data['used'], $status_data['expired'] )
+            ),
+            'sales' => array(
+                'labels' => $labels,
+                'data'   => $sales_data
+            )
+        );
     }
 
     /**
@@ -165,7 +274,55 @@ class VSBBM_Admin_Interface {
 
     // --- Other Render Methods (Placeholders or includes) ---
     
-    public function render_dashboard() { echo '<div class="wrap"><h1>Dashboard</h1></div>'; }
+    // Dashboard Page
+
+    //(ساختار HTML برای نمایش کارت‌ها و نمودارها)
+    public function render_dashboard() {
+        // محاسبه آمارهای خلاصه
+        $stats = $this->get_quick_stats();
+        ?>
+        <div class="wrap vsbbm-admin-dashboard">
+            <h1><?php esc_html_e( 'Bus Booking Dashboard', 'vs-bus-booking-manager' ); ?></h1>
+
+            <!-- آمار سریع -->
+            <div class="vsbbm-stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">💰</div>
+                    <div class="stat-content">
+                        <h3><?php esc_html_e( 'Total Revenue', 'vs-bus-booking-manager' ); ?></h3>
+                        <div class="stat-number"><?php echo wc_price( $stats['revenue'] ); ?></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🎫</div>
+                    <div class="stat-content">
+                        <h3><?php esc_html_e( 'Tickets Sold', 'vs-bus-booking-manager' ); ?></h3>
+                        <div class="stat-number"><?php echo number_format( $stats['tickets'] ); ?></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🚌</div>
+                    <div class="stat-content">
+                        <h3><?php esc_html_e( 'Active Trips', 'vs-bus-booking-manager' ); ?></h3>
+                        <div class="stat-number"><?php echo number_format( $stats['trips'] ); ?></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- نمودارها -->
+            <div class="vsbbm-charts">
+                <div class="chart-container">
+                    <h3><?php esc_html_e( 'Sales (Last 7 Days)', 'vs-bus-booking-manager' ); ?></h3>
+                    <canvas id="vsbbm-revenue-chart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3><?php esc_html_e( 'Ticket Status', 'vs-bus-booking-manager' ); ?></h3>
+                    <canvas id="vsbbm-status-chart" style="max-height: 300px;"></canvas>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
     public function render_bookings_page() { if ( file_exists( VSBBM_PLUGIN_PATH . 'templates/admin/bookings.php' ) ) include VSBBM_PLUGIN_PATH . 'templates/admin/bookings.php'; }
     public function render_reservations_page() { if ( file_exists( VSBBM_PLUGIN_PATH . 'templates/admin/reservations.php' ) ) include VSBBM_PLUGIN_PATH . 'templates/admin/reservations.php'; }
     public function render_blacklist_page() { if ( class_exists( 'VSBBM_Blacklist' ) ) VSBBM_Blacklist::render_admin_page(); }
