@@ -276,3 +276,42 @@
         margin-top: 5px;
     }
 }
+
+/* Ticket Scanner Styles */
+.vsbbm-scanner-wrapper {
+    max-width: 600px;
+    margin: 20px auto;
+    text-align: center;
+}
+
+.vsbbm-scanner-box {
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.vsbbm-manual-entry {
+    background: #f9f9f9;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    margin-bottom: 20px;
+}
+
+#vsbbm-scan-result {
+    padding: 20px;
+    border-radius: 8px;
+    border: 2px solid #ccc;
+    background: #fff;
+    animation: fadeIn 0.3s;
+}
+
+#vsbbm-scan-result.success { border-color: #4caf50; background: #e8f5e9; }
+#vsbbm-scan-result.error { border-color: #f44336; background: #ffebee; }
+#vsbbm-scan-result.warning { border-color: #ff9800; background: #fff3e0; }
+
+.scan-status-icon { font-size: 48px; margin-bottom: 10px; }
+.scan-title { margin: 0 0 15px; font-weight: bold; }
+.scan-details p { margin: 5px 0; font-size: 16px; border-bottom: 1px dashed rgba(0,0,0,0.1); padding-bottom: 5px; }

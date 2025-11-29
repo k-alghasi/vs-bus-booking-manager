@@ -2,11 +2,11 @@
 /**
  * Class VSBBM_Ticket_Manager
  *
- * Manages electronic tickets, QR codes, and PDF generation using TCPDF (via Vendor).
- * Fixed: Added missing helper methods and PDF output cleaning.
+ * Manages electronic tickets, QR codes, PDF generation, and Validation/Scanning.
+ * Fixed: Missing methods and class structure.
  *
  * @package VSBBM
- * @since   2.0.2
+ * @since   2.0.3
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -40,6 +40,10 @@ class VSBBM_Ticket_Manager {
         add_action( 'woocommerce_account_tickets_endpoint', array( $this, 'display_tickets_in_account' ) );
         
         add_action( 'woocommerce_order_details_after_order_table', array( $this, 'display_tickets_on_order_page' ), 10, 1 );
+
+        // Scanner AJAX Hooks
+        add_action( 'wp_ajax_vsbbm_validate_ticket', array( $this, 'ajax_validate_ticket' ) );
+        add_action( 'wp_ajax_vsbbm_checkin_ticket', array( $this, 'ajax_checkin_ticket' ) );
     }
 
     public static function create_table() {
@@ -74,7 +78,7 @@ class VSBBM_Ticket_Manager {
     }
 
     /**
-     * Get tickets for a specific order (Required by Email Class).
+     * Get tickets for a specific order.
      */
     public static function get_tickets_for_order( $order_id ) {
         global $wpdb;
@@ -86,6 +90,10 @@ class VSBBM_Ticket_Manager {
         ));
     }
 
+    /* ==========================================================================
+       TICKET GENERATION logic (generate_tickets_for_order, etc.)
+       ========================================================================== */
+    
     public function generate_tickets_for_order( $order_id ) {
         $order = wc_get_order( $order_id );
         if ( ! $order ) return;
@@ -107,13 +115,8 @@ class VSBBM_Ticket_Manager {
     }
 
     private function process_order_item_tickets( $order, $item ) {
-        // Attempt to get raw data
         $passengers = $item->get_meta( '_vsbbm_passengers' );
-        
-        // Fallback
-        if ( empty( $passengers ) ) {
-            $passengers = $item->get_meta( 'vsbbm_passengers' );
-        }
+        if ( empty( $passengers ) ) $passengers = $item->get_meta( 'vsbbm_passengers' ); // Fallback
 
         if ( empty( $passengers ) || ! is_array( $passengers ) ) return;
 
@@ -136,7 +139,8 @@ class VSBBM_Ticket_Manager {
         $qr_data = wp_json_encode( array(
             'tn' => $ticket_number,
             'oid' => $order->get_id(),
-            'nid' => $passenger_data['national_id'] ?? '',
+            // Ensure national ID is captured correctly based on field names
+            'nid' => $passenger_data['national_id'] ?? ($passenger_data['کد ملی'] ?? ''),
         ));
 
         $result = $wpdb->insert(
@@ -182,10 +186,7 @@ class VSBBM_Ticket_Manager {
             wp_mkdir_p( $base_dir );
         }
 
-        // Clean output buffer to prevent PDF corruption
-        if ( ob_get_length() ) {
-            ob_end_clean();
-        }
+        if ( ob_get_length() ) ob_end_clean();
 
         $pdf = new TCPDF( PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false );
         $pdf->SetCreator( 'VS Bus Booking Manager' );
@@ -223,7 +224,6 @@ class VSBBM_Ticket_Manager {
     }
 
     private function get_ticket_html_for_pdf( $order, $passenger_data, $ticket_number ) {
-        // ... (Same HTML Template as before) ...
         $product_name = '';
         foreach ( $order->get_items() as $item ) {
             if ( VSBBM_Seat_Manager::is_seat_booking_enabled( $item->get_product_id() ) ) {
@@ -237,17 +237,18 @@ class VSBBM_Ticket_Manager {
         $time_display = $timestamp ? wp_date( 'H:i', $timestamp ) : '-';
         $site_name = get_bloginfo('name');
         
+        // Dynamic field extraction
         $passenger_name = '-';
-        foreach ($passenger_data as $key => $value) {
-            if (stripos($key, 'name') !== false || stripos($key, 'نام') !== false) {
-                $passenger_name = $value; break;
-            }
-        }
-        
         $national_id = '-';
+        
         foreach ($passenger_data as $key => $value) {
-            if (stripos($key, 'national') !== false || stripos($key, 'ملی') !== false) {
-                $national_id = $value; break;
+            // Check for name variations
+            if (stripos($key, 'name') !== false || stripos($key, 'نام') !== false) {
+                $passenger_name = $value;
+            }
+            // Check for national ID variations
+            if (stripos($key, 'national') !== false || stripos($key, 'ملی') !== false || stripos($key, 'nid') !== false) {
+                $national_id = $value;
             }
         }
 
@@ -276,6 +277,10 @@ class VSBBM_Ticket_Manager {
 
         return $html;
     }
+
+    /* ==========================================================================
+       DISPLAY & DOWNLOAD HANDLERS
+       ========================================================================== */
 
     public function handle_ticket_download() {
         global $wp_query;
@@ -308,9 +313,7 @@ class VSBBM_Ticket_Manager {
             $file_path  = $upload_dir['basedir'] . $ticket->pdf_path;
             
             if ( file_exists( $file_path ) ) {
-                // پاک کردن بافر خروجی قبل از ارسال فایل
                 if ( ob_get_length() ) ob_end_clean();
-
                 header( 'Content-Type: application/pdf' );
                 header( 'Content-Disposition: attachment; filename="Ticket-' . $ticket->ticket_number . '.pdf"' );
                 header( 'Content-Length: ' . filesize( $file_path ) );
@@ -416,6 +419,89 @@ class VSBBM_Ticket_Manager {
             </tbody>
         </table>
         <?php
+    }
+
+    /* ==========================================================================
+       SCANNER & AJAX
+       ========================================================================== */
+
+    /**
+     * AJAX: Validate Ticket (Read Only)
+     */
+    public function ajax_validate_ticket() {
+        check_ajax_referer( 'vsbbm_scanner_nonce', 'nonce' );
+
+        $code = sanitize_text_field( $_POST['ticket_code'] );
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+
+        $ticket = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $table_name WHERE ticket_number = %s", $code ) );
+
+        if ( ! $ticket ) {
+            wp_send_json_error( array( 'message' => __( 'Ticket not found.', 'vs-bus-booking-manager' ) ) );
+        }
+
+        // Get info
+        $order = wc_get_order( $ticket->order_id );
+        $passenger = json_decode( $ticket->passenger_data, true );
+        $date_display = $ticket->departure_timestamp ? wp_date( 'Y/m/d H:i', $ticket->departure_timestamp ) : '-';
+
+        $is_valid = ( $ticket->status === 'active' );
+        $status_text = $ticket->status;
+        
+        wp_send_json_success( array(
+            'ticket_id' => $ticket->id,
+            'ticket_no' => $ticket->ticket_number,
+            'status'    => $status_text,
+            'is_valid'  => $is_valid,
+            // Try to find name, national id from fields
+            'passenger' => $this->get_passenger_name_from_data($passenger),
+            'seat'      => $passenger['seat_number'] ?? '-',
+            'date'      => $date_display,
+            'order_id'  => $ticket->order_id
+        ));
+    }
+
+    /**
+     * AJAX: Check-in Ticket (Mark as Used)
+     */
+    public function ajax_checkin_ticket() {
+        check_ajax_referer( 'vsbbm_scanner_nonce', 'nonce' );
+        
+        $ticket_id = absint( $_POST['ticket_id'] );
+        
+        if ( self::use_ticket( $ticket_id ) ) {
+            wp_send_json_success( array( 'message' => __( 'Ticket Checked-in Successfully!', 'vs-bus-booking-manager' ) ) );
+        } else {
+            wp_send_json_error( array( 'message' => __( 'Error updating ticket status.', 'vs-bus-booking-manager' ) ) );
+        }
+    }
+
+    /**
+     * Mark ticket as used.
+     */
+    public static function use_ticket( $ticket_id ) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+        return $wpdb->update( 
+            $table_name, 
+            array( 'status' => 'used', 'used_at' => current_time( 'mysql' ) ), 
+            array( 'id' => $ticket_id ),
+            array( '%s', '%s' ),
+            array( '%d' )
+        );
+    }
+
+    /**
+     * Helper to extract name from passenger array
+     */
+    private function get_passenger_name_from_data( $data ) {
+        foreach ( $data as $key => $value ) {
+            if ( stripos( $key, 'name' ) !== false || stripos( $key, 'نام' ) !== false ) {
+                return $value;
+            }
+        }
+        return '-';
     }
 }
 
