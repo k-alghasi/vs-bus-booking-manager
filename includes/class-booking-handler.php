@@ -178,14 +178,31 @@ class VSBBM_Booking_Handler {
     /**
      * Save metadata to order items.
      */
+    /**
+     * Save metadata to order items.
+     * اصلاح شده: ذخیره داده‌های خام برای استفاده در تیکت منیجر
+     */
     public static function save_order_item_meta( $item, $cart_item_key, $values, $order ) {
         if ( isset( $values['vsbbm_passengers'] ) ) {
+            // 1. ذخیره داده‌های خام (بسیار مهم برای Ticket Manager)
+            $item->add_meta_data( '_vsbbm_passengers', $values['vsbbm_passengers'] );
+            // ذخیره صندلی‌ها جداگانه برای دسترسی سریع
+            $seats = array_column($values['vsbbm_passengers'], 'seat_number');
+            $item->add_meta_data( '_vsbbm_seats', $seats );
+
+            // 2. ذخیره داده‌های نمایشی (برای ادمین و کاربر)
             foreach ( $values['vsbbm_passengers'] as $index => $passenger ) {
                 $meta_parts = array();
 
                 foreach ( $passenger as $key => $value ) {
                     if ( 'seat_number' !== $key && ! empty( $value ) ) {
+                        // ترجمه کلیدها برای نمایش بهتر
                         $label = str_replace( '_', ' ', $key );
+                        // اگر کلیدها انگلیسی هستند، می‌توان اینجا ترجمه کرد
+                        if($key === 'fullname') $label = __('Full Name', 'vs-bus-booking-manager');
+                        if($key === 'national_id') $label = __('National ID', 'vs-bus-booking-manager');
+                        if($key === 'gender') $label = __('Gender', 'vs-bus-booking-manager');
+                        
                         $meta_parts[] = $label . ': ' . $value;
                     }
                 }
@@ -201,13 +218,14 @@ class VSBBM_Booking_Handler {
             }
         }
 
+        // ذخیره تاریخ حرکت
         if ( ! empty( $values['vsbbm_departure_timestamp'] ) ) {
             $timestamp = $values['vsbbm_departure_timestamp'];
             
-            // Private meta for logic
+            // متا مخفی برای منطق سیستم
             $item->add_meta_data( '_vsbbm_departure_timestamp', $timestamp );
 
-            // Public meta for display
+            // متا نمایشی
             $display_date = wp_date( 'Y/m/d H:i', $timestamp );
             $item->add_meta_data( __( 'Departure Date', 'vs-bus-booking-manager' ), $display_date );
         }

@@ -38,21 +38,28 @@ class VS_Bus_Booking_Manager {
     }
 
     private function __construct() {
+        // ترتیب اجرا: اول وابستگی‌ها، بعد هوک‌ها
         $this->load_dependencies();
         $this->init_hooks();
     }
 
     private function load_dependencies() {
-        // 1. Utilities & Helpers (باید اول لود شوند)
+        // 0. Composer Autoloader (اولویت اول)
+        // اگر از پکیج‌های کامپوزر استفاده می‌کنید، باید قبل از هر چیزی لود شوند
+        if ( file_exists( VSBBM_PLUGIN_PATH . 'vendor/autoload.php' ) ) {
+            require_once VSBBM_PLUGIN_PATH . 'vendor/autoload.php';
+        }
+
+        // 1. Utilities & Helpers
         require_once VSBBM_PLUGIN_PATH . 'includes/class-cache-manager.php';
         
         // 2. Models (دیتابیس و منطق داده)
         require_once VSBBM_PLUGIN_PATH . 'includes/class-blacklist.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-reservations.php'; // حیاتی: قبل از منیجر لود شود
+        require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-reservations.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-ticket-manager.php';
         
         // 3. Controllers (مدیریت منطق)
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-manager.php'; // از کلاس‌های بالا استفاده می‌کند
+        require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-manager.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-booking-handler.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-email-notifications.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-sms-notifications.php';
@@ -61,10 +68,8 @@ class VS_Bus_Booking_Manager {
         // 4. Admin & API
         require_once VSBBM_PLUGIN_PATH . 'includes/class-admin-interface.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
-        
-        // 5.Load Elementor Widget only if Elementor is active
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
-        
+
+        // 5. Elementor Integration (فقط اگر المنتور فعال باشد)
         add_action('plugins_loaded', function() {
             if ( did_action( 'elementor/loaded' ) ) {
                 require_once VSBBM_PLUGIN_PATH . 'includes/class-elementor-integration.php';
@@ -79,7 +84,7 @@ class VS_Bus_Booking_Manager {
     }
 
     public function activate() {
-        // ایجاد جداول
+        // ایجاد جداول هنگام فعال‌سازی
         if ( class_exists( 'VSBBM_Blacklist' ) ) VSBBM_Blacklist::create_table();
         if ( class_exists( 'VSBBM_Seat_Reservations' ) ) VSBBM_Seat_Reservations::create_table();
         if ( class_exists( 'VSBBM_Ticket_Manager' ) ) VSBBM_Ticket_Manager::create_table();
@@ -109,15 +114,14 @@ class VS_Bus_Booking_Manager {
     public function init() {
         load_plugin_textdomain( 'vs-bus-booking-manager', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
         
-        // مقداردهی کلاس‌ها
+        // مقداردهی اولیه کلاس‌ها
         VSBBM_Seat_Manager::init();
         VSBBM_Booking_Handler::init();
         VSBBM_Admin_Interface::init();
-        // سایر کلاس‌ها Singleton هستند و با get_instance فراخوانی می‌شوند
     }
 
     public function admin_init() {
-        // لینک تنظیمات
+        // تنظیمات خاص ادمین (در صورت نیاز)
     }
 }
 

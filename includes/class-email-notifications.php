@@ -3,27 +3,18 @@
  * Class VSBBM_Email_Notifications
  *
  * Handles sending email notifications for bookings.
+ * Fixed: Syntax errors and duplicate methods.
  *
  * @package VSBBM
- * @since   1.0.0
+ * @since   2.0.2
  */
 
 defined( 'ABSPATH' ) || exit;
 
 class VSBBM_Email_Notifications {
 
-    /**
-     * Singleton instance
-     *
-     * @var VSBBM_Email_Notifications|null
-     */
     private static $instance = null;
 
-    /**
-     * Get the singleton instance.
-     *
-     * @return VSBBM_Email_Notifications
-     */
     public static function get_instance() {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -31,45 +22,29 @@ class VSBBM_Email_Notifications {
         return self::$instance;
     }
 
-    /**
-     * Constructor.
-     */
     private function __construct() {
         $this->init_hooks();
     }
 
-    /**
-     * Initialize hooks.
-     */
     private function init_hooks() {
-        // Order Status Hooks
         add_action( 'woocommerce_order_status_changed', array( $this, 'handle_order_status_change' ), 20, 4 );
-
-        // Custom Reservation Hooks
         add_action( 'vsbbm_reservation_confirmed', array( $this, 'send_booking_confirmation_email' ), 10, 2 );
         add_action( 'vsbbm_reservation_cancelled', array( $this, 'send_booking_cancellation_email' ), 10, 2 );
         add_action( 'vsbbm_new_reservation', array( $this, 'send_admin_new_booking_notification' ), 10, 2 );
         add_action( 'vsbbm_reservation_expired', array( $this, 'send_admin_expired_reservation_notification' ), 10, 1 );
     }
 
-    /**
-     * Handle order status changes.
-     */
     public function handle_order_status_change( $order_id, $old_status, $new_status, $order ) {
-        if ( ! $this->order_has_seat_booking( $order ) ) {
-            return;
-        }
+        if ( ! $this->order_has_seat_booking( $order ) ) return;
 
         switch ( $new_status ) {
             case 'completed':
                 $this->send_customer_booking_confirmation( $order );
                 break;
-
             case 'cancelled':
             case 'refunded':
                 $this->send_customer_booking_cancellation( $order );
                 break;
-
             case 'processing':
                 if ( $this->get_email_setting( 'enable_customer_processing_email' ) ) {
                     $this->send_customer_booking_confirmation( $order );
@@ -78,25 +53,15 @@ class VSBBM_Email_Notifications {
         }
     }
 
-    /**
-     * Check if order has seat bookings.
-     */
     private function order_has_seat_booking( $order ) {
         foreach ( $order->get_items() as $item ) {
-            if ( VSBBM_Seat_Manager::is_seat_booking_enabled( $item->get_product_id() ) ) {
-                return true;
-            }
+            if ( VSBBM_Seat_Manager::is_seat_booking_enabled( $item->get_product_id() ) ) return true;
         }
         return false;
     }
 
-    /**
-     * Send Booking Confirmation to Customer.
-     */
     public function send_customer_booking_confirmation( $order ) {
-        if ( ! $this->get_email_setting( 'enable_customer_confirmation_email' ) ) {
-            return;
-        }
+        if ( ! $this->get_email_setting( 'enable_customer_confirmation_email' ) ) return;
 
         $customer_email = $order->get_billing_email();
         $subject        = $this->get_email_subject( 'customer_confirmation' );
@@ -106,13 +71,8 @@ class VSBBM_Email_Notifications {
         $this->send_email( $customer_email, $subject, $message, 'customer_confirmation', $attachments );
     }
 
-    /**
-     * Send Cancellation Email to Customer.
-     */
     public function send_customer_booking_cancellation( $order ) {
-        if ( ! $this->get_email_setting( 'enable_customer_cancellation_email' ) ) {
-            return;
-        }
+        if ( ! $this->get_email_setting( 'enable_customer_cancellation_email' ) ) return;
 
         $customer_email = $order->get_billing_email();
         $subject        = $this->get_email_subject( 'customer_cancellation' );
@@ -121,13 +81,8 @@ class VSBBM_Email_Notifications {
         $this->send_email( $customer_email, $subject, $message, 'customer_cancellation' );
     }
 
-    /**
-     * Send New Booking Notification to Admin.
-     */
     public function send_admin_new_booking_notification( $order_id, $passengers ) {
-        if ( ! $this->get_email_setting( 'enable_admin_new_booking_email' ) ) {
-            return;
-        }
+        if ( ! $this->get_email_setting( 'enable_admin_new_booking_email' ) ) return;
 
         $admin_email = $this->get_admin_email();
         $subject     = $this->get_email_subject( 'admin_new_booking' );
@@ -136,13 +91,8 @@ class VSBBM_Email_Notifications {
         $this->send_email( $admin_email, $subject, $message, 'admin_new_booking' );
     }
 
-    /**
-     * Send Expired Reservation Notification to Admin.
-     */
     public function send_admin_expired_reservation_notification( $reservation_id ) {
-        if ( ! $this->get_email_setting( 'enable_admin_expired_reservation_email' ) ) {
-            return;
-        }
+        if ( ! $this->get_email_setting( 'enable_admin_expired_reservation_email' ) ) return;
 
         $admin_email = $this->get_admin_email();
         $subject     = $this->get_email_subject( 'admin_expired_reservation' );
@@ -151,9 +101,6 @@ class VSBBM_Email_Notifications {
         $this->send_email( $admin_email, $subject, $message, 'admin_expired_reservation' );
     }
 
-    /**
-     * Get email setting value.
-     */
     private function get_email_setting( $setting_key ) {
         $defaults = array(
             'enable_customer_confirmation_email'     => true,
@@ -165,6 +112,10 @@ class VSBBM_Email_Notifications {
             'from_name'                              => get_bloginfo( 'name' ),
             'from_email'                             => get_option( 'admin_email' ),
             'bcc_admin_on_customer_emails'           => false,
+            'customer_confirmation_subject'          => '',
+            'customer_cancellation_subject'          => '',
+            'admin_new_booking_subject'              => '',
+            'admin_expired_reservation_subject'      => '',
         );
 
         $settings = get_option( 'vsbbm_email_settings', array() );
@@ -173,9 +124,6 @@ class VSBBM_Email_Notifications {
         return isset( $settings[ $setting_key ] ) ? $settings[ $setting_key ] : $defaults[ $setting_key ];
     }
 
-    /**
-     * Get email subject.
-     */
     private function get_email_subject( $email_type ) {
         $subjects = array(
             'customer_confirmation'     => __( 'Booking Confirmation', 'vs-bus-booking-manager' ),
@@ -188,16 +136,10 @@ class VSBBM_Email_Notifications {
         return $custom_subject ?: $subjects[ $email_type ];
     }
 
-    /**
-     * Get Admin Email.
-     */
     private function get_admin_email() {
         return $this->get_email_setting( 'admin_email' );
     }
 
-    /**
-     * Send Email Helper.
-     */
     private function send_email( $to, $subject, $message, $email_type, $attachments = array() ) {
         $headers = array(
             'Content-Type: text/html; charset=UTF-8',
@@ -208,20 +150,9 @@ class VSBBM_Email_Notifications {
             $headers[] = 'Bcc: ' . $this->get_admin_email();
         }
 
-        $sent = wp_mail( $to, $subject, $message, $headers, $attachments );
-
-        if ( $sent ) {
-            error_log( "VSBBM Email sent: {$email_type} to {$to}" );
-        } else {
-            error_log( "VSBBM Email failed: {$email_type} to {$to}" );
-        }
-
-        return $sent;
+        wp_mail( $to, $subject, $message, $headers, $attachments );
     }
 
-    /**
-     * Get Ticket Attachments (PDFs).
-     */
     private function get_ticket_attachments( $order ) {
         $attachments = array();
 
@@ -231,7 +162,6 @@ class VSBBM_Email_Notifications {
             foreach ( $tickets as $ticket ) {
                 if ( $ticket->pdf_path ) {
                     $upload_dir = wp_upload_dir();
-                    // Fix path construction to be OS independent and secure
                     $file_path = $upload_dir['basedir'] . '/' . ltrim( $ticket->pdf_path, '/' );
                     
                     if ( file_exists( $file_path ) ) {
@@ -253,13 +183,12 @@ class VSBBM_Email_Notifications {
         if ( file_exists( $template_path ) ) {
             $passengers   = $this->get_passengers_from_order( $order );
             $product_info = $this->get_product_info_from_order( $order );
-            
             ob_start();
             include $template_path;
             return ob_get_clean();
         }
         
-        return '<p>' . __( 'Thank you for your booking. Your seats are confirmed.', 'vs-bus-booking-manager' ) . '</p>';
+        return '<p>' . __( 'Thank you for your booking.', 'vs-bus-booking-manager' ) . '</p>';
     }
 
     /**
@@ -271,7 +200,6 @@ class VSBBM_Email_Notifications {
         if ( file_exists( $template_path ) ) {
             $passengers   = $this->get_passengers_from_order( $order );
             $product_info = $this->get_product_info_from_order( $order );
-
             ob_start();
             include $template_path;
             return ob_get_clean();
@@ -289,7 +217,6 @@ class VSBBM_Email_Notifications {
         if ( file_exists( $template_path ) ) {
             $order        = wc_get_order( $order_id );
             $product_info = $this->get_product_info_from_order( $order );
-
             ob_start();
             include $template_path;
             return ob_get_clean();
@@ -323,7 +250,6 @@ class VSBBM_Email_Notifications {
      */
     private function get_passengers_from_order( $order ) {
         $passengers = array();
-
         foreach ( $order->get_items() as $item ) {
             foreach ( $item->get_meta_data() as $meta ) {
                 if ( false !== strpos( $meta->key, 'مسافر' ) || false !== strpos( $meta->key, 'Passenger' ) ) {
@@ -331,7 +257,6 @@ class VSBBM_Email_Notifications {
                 }
             }
         }
-
         return $passengers;
     }
 
@@ -340,7 +265,6 @@ class VSBBM_Email_Notifications {
      */
     private function get_product_info_from_order( $order ) {
         $products = array();
-
         foreach ( $order->get_items() as $item ) {
             $product = $item->get_product();
             if ( $product && VSBBM_Seat_Manager::is_seat_booking_enabled( $product->get_id() ) ) {
@@ -351,7 +275,6 @@ class VSBBM_Email_Notifications {
                 );
             }
         }
-
         return $products;
     }
 }

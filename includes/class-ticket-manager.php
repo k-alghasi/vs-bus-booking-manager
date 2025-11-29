@@ -2,30 +2,20 @@
 /**
  * Class VSBBM_Ticket_Manager
  *
- * Manages electronic tickets, QR codes, and PDF generation.
- * Updated to support departure dates.
+ * Manages electronic tickets, QR codes, and PDF generation using TCPDF (via Vendor).
+ * Fixed: Added missing helper methods and PDF output cleaning.
  *
  * @package VSBBM
- * @since   1.0.0
+ * @since   2.0.2
  */
 
 defined( 'ABSPATH' ) || exit;
 
 class VSBBM_Ticket_Manager {
 
-    /**
-     * Singleton instance.
-     */
     private static $instance = null;
-
-    /**
-     * Table name without prefix.
-     */
     private static $table_name = 'vsbbm_tickets';
 
-    /**
-     * Get singleton instance.
-     */
     public static function get_instance() {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -33,39 +23,27 @@ class VSBBM_Ticket_Manager {
         return self::$instance;
     }
 
-    /**
-     * Constructor.
-     */
     private function __construct() {
         $this->init_hooks();
     }
 
-    /**
-     * Initialize hooks.
-     */
     private function init_hooks() {
-        // DB Creation
         register_activation_hook( VSBBM_PLUGIN_PATH . 'vs-bus-booking-manager.php', array( $this, 'create_table' ) );
 
-        // Ticket Generation
         add_action( 'woocommerce_order_status_completed', array( $this, 'generate_tickets_for_order' ), 10, 1 );
         add_action( 'woocommerce_order_status_processing', array( $this, 'generate_tickets_for_order' ), 10, 1 );
 
-        // Download Endpoint
-        add_action( 'init', array( $this, 'add_ticket_download_endpoint' ) );
+        add_action( 'init', array( $this, 'register_endpoints' ) );
         add_action( 'woocommerce_account_ticket-download_endpoint', array( $this, 'handle_ticket_download' ) );
 
-        // My Account Integration
         add_filter( 'woocommerce_account_menu_items', array( $this, 'add_ticket_menu_to_account' ) );
         add_action( 'woocommerce_account_tickets_endpoint', array( $this, 'display_tickets_in_account' ) );
+        
+        add_action( 'woocommerce_order_details_after_order_table', array( $this, 'display_tickets_on_order_page' ), 10, 1 );
     }
 
-    /**
-     * Create Database Table.
-     */
     public static function create_table() {
         global $wpdb;
-
         $table_name      = $wpdb->prefix . self::$table_name;
         $charset_collate = $wpdb->get_charset_collate();
 
@@ -75,7 +53,6 @@ class VSBBM_Ticket_Manager {
             ticket_number VARCHAR(50) NOT NULL UNIQUE,
             departure_timestamp BIGINT(20) NOT NULL DEFAULT 0,
             qr_code_data TEXT,
-            qr_code_path VARCHAR(255),
             pdf_path VARCHAR(255),
             passenger_data LONGTEXT,
             status ENUM('active', 'used', 'cancelled', 'expired') DEFAULT 'active',
@@ -84,7 +61,6 @@ class VSBBM_Ticket_Manager {
             PRIMARY KEY  (id),
             KEY order_id (order_id),
             KEY ticket_number (ticket_number),
-            KEY departure_timestamp (departure_timestamp),
             KEY status (status)
         ) $charset_collate;";
 
@@ -92,19 +68,29 @@ class VSBBM_Ticket_Manager {
         dbDelta( $sql );
     }
 
+    public function register_endpoints() {
+        add_rewrite_endpoint( 'ticket-download', EP_ROOT | EP_PAGES );
+        add_rewrite_endpoint( 'tickets', EP_ROOT | EP_PAGES );
+    }
+
     /**
-     * Generate tickets for a completed/processing order.
+     * Get tickets for a specific order (Required by Email Class).
      */
+    public static function get_tickets_for_order( $order_id ) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+        
+        return $wpdb->get_results( $wpdb->prepare( 
+            "SELECT * FROM $table_name WHERE order_id = %d AND status = 'active'", 
+            $order_id 
+        ));
+    }
+
     public function generate_tickets_for_order( $order_id ) {
         $order = wc_get_order( $order_id );
-        if ( ! $order ) {
-            return;
-        }
+        if ( ! $order ) return;
 
-        // Check if tickets already exist to prevent duplicates
-        if ( $this->tickets_exist_for_order( $order_id ) ) {
-            return;
-        }
+        if ( $this->tickets_exist_for_order( $order_id ) ) return;
 
         foreach ( $order->get_items() as $item ) {
             if ( VSBBM_Seat_Manager::is_seat_booking_enabled( $item->get_product_id() ) ) {
@@ -113,49 +99,45 @@ class VSBBM_Ticket_Manager {
         }
     }
 
-    /**
-     * Helper: Check if tickets exist.
-     */
     private function tickets_exist_for_order( $order_id ) {
         global $wpdb;
         $table_name = $wpdb->prefix . self::$table_name;
-        return $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $table_name WHERE order_id = %d", $order_id ) ) > 0;
+        $count = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $table_name WHERE order_id = %d", $order_id ) );
+        return $count > 0;
     }
 
-    /**
-     * Process a single order item and generate tickets for passengers.
-     */
     private function process_order_item_tickets( $order, $item ) {
-        $passengers = $item->get_meta( 'vsbbm_passengers' ); // Should be saved as array in Booking Handler
+        // Attempt to get raw data
+        $passengers = $item->get_meta( '_vsbbm_passengers' );
         
-        // Fallback for older data structure if saved differently
+        // Fallback
         if ( empty( $passengers ) ) {
-            // Logic to extract from individual meta keys if needed
-            // For now, assuming standard structure from Booking Handler
-            return;
+            $passengers = $item->get_meta( 'vsbbm_passengers' );
         }
+
+        if ( empty( $passengers ) || ! is_array( $passengers ) ) return;
 
         $departure_timestamp = $item->get_meta( '_vsbbm_departure_timestamp', true );
 
         foreach ( $passengers as $passenger_data ) {
-            // Inject departure time into passenger data for internal use
             if ( $departure_timestamp ) {
                 $passenger_data['_vsbbm_departure_timestamp'] = $departure_timestamp;
             }
-            
             $this->generate_single_ticket( $order, $passenger_data, $departure_timestamp );
         }
     }
 
-    /**
-     * Generate a single ticket record.
-     */
     private function generate_single_ticket( $order, $passenger_data, $departure_timestamp = 0 ) {
         global $wpdb;
         $table_name = $wpdb->prefix . self::$table_name;
 
         $ticket_number = $this->generate_ticket_number( $order->get_id() );
-        $qr_data       = $this->generate_qr_data( $order, $passenger_data, $ticket_number, $departure_timestamp );
+        
+        $qr_data = wp_json_encode( array(
+            'tn' => $ticket_number,
+            'oid' => $order->get_id(),
+            'nid' => $passenger_data['national_id'] ?? '',
+        ));
 
         $result = $wpdb->insert(
             $table_name,
@@ -172,52 +154,132 @@ class VSBBM_Ticket_Manager {
 
         if ( $result ) {
             $ticket_id = $wpdb->insert_id;
-            
-            // Phase 2/3: Generate actual PDF/QR files here
-            // For Phase 1, we just simulate or keep empty
-            // $this->generate_pdf_ticket($ticket_id, ...);
-            
-            error_log( "VSBBM: Ticket generated: $ticket_number for Order #{$order->get_id()}" );
+            $this->generate_pdf_file( $ticket_id, $order, $passenger_data, $ticket_number );
         }
     }
 
-    /**
-     * Generate unique ticket number.
-     */
     private function generate_ticket_number( $order_id ) {
         return strtoupper( uniqid( 'TK-' . $order_id . '-' ) );
     }
 
-    /**
-     * Generate QR Code JSON Data.
-     */
-    private function generate_qr_data( $order, $passenger_data, $ticket_number, $departure_timestamp ) {
-        $data = array(
-            'tn' => $ticket_number, // Short keys for smaller QR
-            'oid' => $order->get_id(),
-            'seat' => $passenger_data['seat_number'] ?? '',
-            'nid' => $passenger_data['کد ملی'] ?? ($passenger_data['National ID'] ?? ''), // Handle both keys
-            'dt' => $departure_timestamp,
-        );
-        return wp_json_encode( $data );
+    private function generate_pdf_file( $ticket_id, $order, $passenger_data, $ticket_number ) {
+        $tcpdf_path = VSBBM_PLUGIN_PATH . 'vendor/tecnickcom/tcpdf/tcpdf.php';
+
+        if ( ! file_exists( $tcpdf_path ) ) {
+            if ( ! class_exists( 'TCPDF' ) ) {
+                error_log( 'VSBBM Error: TCPDF library not found.' );
+                return false;
+            }
+        } else {
+            if ( ! class_exists( 'TCPDF' ) ) {
+                require_once $tcpdf_path;
+            }
+        }
+
+        $upload_dir = wp_upload_dir();
+        $base_dir   = $upload_dir['basedir'] . '/vsbbm-tickets';
+        if ( ! file_exists( $base_dir ) ) {
+            wp_mkdir_p( $base_dir );
+        }
+
+        // Clean output buffer to prevent PDF corruption
+        if ( ob_get_length() ) {
+            ob_end_clean();
+        }
+
+        $pdf = new TCPDF( PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false );
+        $pdf->SetCreator( 'VS Bus Booking Manager' );
+        $pdf->SetAuthor( get_bloginfo( 'name' ) );
+        $pdf->SetTitle( 'Ticket ' . $ticket_number );
+        $pdf->setPrintHeader( false );
+        $pdf->setPrintFooter( false );
+        $pdf->SetFont( 'dejavusans', '', 10 );
+        $pdf->AddPage();
+        $pdf->setRTL( true );
+
+        $html = $this->get_ticket_html_for_pdf( $order, $passenger_data, $ticket_number );
+        $pdf->writeHTML( $html, true, false, true, false, '' );
+
+        $qr_content = json_encode(array('ticket' => $ticket_number));
+        $pdf->write2DBarcode( $qr_content, 'QRCODE,H', 15, 20, 30, 30, array(
+            'border' => 0, 
+            'padding' => 0, 
+            'fgcolor' => array(0,0,0), 
+            'bgcolor' => false
+        ), 'N');
+
+        $file_name = 'ticket-' . $ticket_number . '.pdf';
+        $file_path = $base_dir . '/' . $file_name;
+        
+        $pdf->Output( $file_path, 'F' );
+
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+        $relative_path = '/vsbbm-tickets/' . $file_name;
+        
+        $wpdb->update( $table_name, array( 'pdf_path' => $relative_path ), array( 'id' => $ticket_id ) );
+
+        return $relative_path;
     }
 
-    /**
-     * Add Rewrite Endpoint.
-     */
-    public function add_ticket_download_endpoint() {
-        add_rewrite_endpoint( 'ticket-download', EP_ROOT | EP_PAGES );
+    private function get_ticket_html_for_pdf( $order, $passenger_data, $ticket_number ) {
+        // ... (Same HTML Template as before) ...
+        $product_name = '';
+        foreach ( $order->get_items() as $item ) {
+            if ( VSBBM_Seat_Manager::is_seat_booking_enabled( $item->get_product_id() ) ) {
+                $product_name = $item->get_name();
+                break;
+            }
+        }
+
+        $timestamp = $passenger_data['_vsbbm_departure_timestamp'] ?? 0;
+        $date_display = $timestamp ? wp_date( 'Y/m/d', $timestamp ) : '-';
+        $time_display = $timestamp ? wp_date( 'H:i', $timestamp ) : '-';
+        $site_name = get_bloginfo('name');
+        
+        $passenger_name = '-';
+        foreach ($passenger_data as $key => $value) {
+            if (stripos($key, 'name') !== false || stripos($key, 'نام') !== false) {
+                $passenger_name = $value; break;
+            }
+        }
+        
+        $national_id = '-';
+        foreach ($passenger_data as $key => $value) {
+            if (stripos($key, 'national') !== false || stripos($key, 'ملی') !== false) {
+                $national_id = $value; break;
+            }
+        }
+
+        $html = '
+        <style>
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            td { padding: 10px; border-bottom: 1px solid #ddd; }
+            .header { background-color: #eee; padding: 15px; text-align: center; font-size: 16pt; font-weight: bold; }
+            .label { font-weight: bold; width: 40%; }
+            .value { width: 60%; }
+            .footer { text-align: center; font-size: 9pt; margin-top: 30px; color: #777; }
+        </style>
+        <div style="border: 2px solid #000; padding: 5px; border-radius: 5px;">
+            <div class="header">بلیط الکترونیکی - ' . $site_name . '</div>
+            <br><br><br>
+            <table>
+                <tr><td class="label">شماره بلیط:</td><td class="value"><strong>' . $ticket_number . '</strong></td></tr>
+                <tr><td class="label">سرویس:</td><td class="value">' . $product_name . '</td></tr>
+                <tr><td class="label">تاریخ حرکت:</td><td class="value">' . $date_display . ' ساعت ' . $time_display . '</td></tr>
+                <tr><td class="label">نام مسافر:</td><td class="value">' . $passenger_name . '</td></tr>
+                <tr><td class="label">شماره صندلی:</td><td class="value" style="font-size: 16pt; font-weight: bold;">' . ($passenger_data['seat_number'] ?? '-') . '</td></tr>
+                <tr><td class="label">کد ملی:</td><td class="value">' . $national_id . '</td></tr>
+            </table>
+            <div class="footer">سفارش شماره: #' . $order->get_order_number() . ' | صادر شده توسط سیستم VSBBM</div>
+        </div>';
+
+        return $html;
     }
 
-    /**
-     * Handle PDF Download.
-     */
     public function handle_ticket_download() {
         global $wp_query;
-
-        if ( ! isset( $wp_query->query_vars['ticket-download'] ) ) {
-            return;
-        }
+        if ( ! isset( $wp_query->query_vars['ticket-download'] ) ) return;
 
         if ( ! is_user_logged_in() ) {
             wp_safe_redirect( wc_get_page_permalink( 'myaccount' ) );
@@ -229,145 +291,37 @@ class VSBBM_Ticket_Manager {
         exit;
     }
 
-    /**
-     * Download Logic.
-     */
     private function download_ticket( $ticket_id ) {
         global $wpdb;
         $table_name = $wpdb->prefix . self::$table_name;
-
         $ticket = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $table_name WHERE id = %d", $ticket_id ) );
 
-        if ( ! $ticket ) {
-            wp_die( __( 'Ticket not found.', 'vs-bus-booking-manager' ) );
-        }
+        if ( ! $ticket ) wp_die( 'Ticket not found.' );
 
         $order = wc_get_order( $ticket->order_id );
-        
-        // Security: Check ownership
         if ( ! $order || $order->get_customer_id() !== get_current_user_id() ) {
-            wp_die( __( 'You do not have permission to view this ticket.', 'vs-bus-booking-manager' ) );
+            wp_die( 'Access denied.' );
         }
 
-        // If PDF exists on server
         if ( ! empty( $ticket->pdf_path ) ) {
             $upload_dir = wp_upload_dir();
-            $file_path  = $upload_dir['basedir'] . '/' . ltrim( $ticket->pdf_path, '/' );
+            $file_path  = $upload_dir['basedir'] . $ticket->pdf_path;
             
-            // Prevent directory traversal
-            $real_path = realpath( $file_path );
-            if ( $real_path && file_exists( $real_path ) && strpos( $real_path, $upload_dir['basedir'] ) === 0 ) {
+            if ( file_exists( $file_path ) ) {
+                // پاک کردن بافر خروجی قبل از ارسال فایل
+                if ( ob_get_length() ) ob_end_clean();
+
                 header( 'Content-Type: application/pdf' );
                 header( 'Content-Disposition: attachment; filename="Ticket-' . $ticket->ticket_number . '.pdf"' );
-                readfile( $real_path );
+                header( 'Content-Length: ' . filesize( $file_path ) );
+                readfile( $file_path );
                 exit;
             }
         }
-
-        // Fallback: Generate HTML View on the fly (Phase 1)
-        // Since we don't have a PDF library bundled yet.
-        $this->render_html_ticket( $ticket, $order );
-        exit;
+        wp_die( 'PDF file missing.' );
     }
 
-    /**
-     * Render HTML Ticket (Fallback/Preview).
-     */
-    private function render_html_ticket( $ticket, $order ) {
-        $passenger_data = json_decode( $ticket->passenger_data, true );
-        echo $this->get_ticket_html_template( $order, $passenger_data, $ticket->ticket_number, $ticket->id );
-    }
-
-    /**
-     * Get HTML Template.
-     */
-    private function get_ticket_html_template( $order, $passenger_data, $ticket_number, $ticket_id ) {
-        $product_name = '';
-        foreach ( $order->get_items() as $item ) {
-            if ( VSBBM_Seat_Manager::is_seat_booking_enabled( $item->get_product_id() ) ) {
-                $product_name = $item->get_name();
-                break;
-            }
-        }
-
-        $departure_timestamp = $ticket->departure_timestamp ?? ($passenger_data['_vsbbm_departure_timestamp'] ?? 0); // Handle object or array
-        $date_display        = $departure_timestamp ? wp_date( 'Y/m/d', $departure_timestamp ) : '-';
-        $time_display        = $departure_timestamp ? wp_date( 'H:i', $departure_timestamp ) : '-';
-
-        ob_start();
-        ?>
-        <!DOCTYPE html>
-        <html dir="<?php echo is_rtl() ? 'rtl' : 'ltr'; ?>">
-        <head>
-            <meta charset="UTF-8">
-            <title><?php esc_html_e( 'Ticket', 'vs-bus-booking-manager' ); ?> - <?php echo esc_html( $ticket_number ); ?></title>
-            <style>
-                body { font-family: Tahoma, Arial, sans-serif; background: #f0f0f0; padding: 20px; }
-                .ticket-box { background: #fff; border: 1px solid #ccc; max-width: 600px; margin: 0 auto; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-                .ticket-header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; text-align: center; }
-                .row { display: flex; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px dotted #eee; padding-bottom: 5px; }
-                .label { font-weight: bold; color: #555; }
-                .footer { margin-top: 20px; text-align: center; font-size: 12px; color: #999; }
-                @media print { body { background: #fff; } .ticket-box { box-shadow: none; border: 2px solid #000; } }
-            </style>
-        </head>
-        <body>
-            <div class="ticket-box">
-                <div class="ticket-header">
-                    <h2><?php esc_html_e( 'e-Ticket', 'vs-bus-booking-manager' ); ?></h2>
-                    <p><?php esc_html_e( 'Order:', 'vs-bus-booking-manager' ); ?> #<?php echo esc_html( $order->get_order_number() ); ?></p>
-                </div>
-                
-                <div class="row">
-                    <span class="label"><?php esc_html_e( 'Service:', 'vs-bus-booking-manager' ); ?></span>
-                    <span><?php echo esc_html( $product_name ); ?></span>
-                </div>
-                <div class="row">
-                    <span class="label"><?php esc_html_e( 'Ticket Number:', 'vs-bus-booking-manager' ); ?></span>
-                    <span><strong><?php echo esc_html( $ticket_number ); ?></strong></span>
-                </div>
-                <div class="row">
-                    <span class="label"><?php esc_html_e( 'Departure Date:', 'vs-bus-booking-manager' ); ?></span>
-                    <span><?php echo esc_html( $date_display ); ?></span>
-                </div>
-                <div class="row">
-                    <span class="label"><?php esc_html_e( 'Departure Time:', 'vs-bus-booking-manager' ); ?></span>
-                    <span><?php echo esc_html( $time_display ); ?></span>
-                </div>
-                
-                <hr>
-                
-                <h3><?php esc_html_e( 'Passenger Details', 'vs-bus-booking-manager' ); ?></h3>
-                <div class="row">
-                    <span class="label"><?php esc_html_e( 'Seat Number:', 'vs-bus-booking-manager' ); ?></span>
-                    <span><strong style="font-size: 1.2em;"><?php echo esc_html( $passenger_data['seat_number'] ?? '-' ); ?></strong></span>
-                </div>
-                
-                <?php foreach ( $passenger_data as $key => $value ) : 
-                    if ( in_array( $key, array( 'seat_number', '_vsbbm_departure_timestamp' ) ) || empty( $value ) ) continue;
-                    ?>
-                    <div class="row">
-                        <span class="label"><?php echo esc_html( ucfirst( str_replace( '_', ' ', $key ) ) ); ?>:</span>
-                        <span><?php echo esc_html( $value ); ?></span>
-                    </div>
-                <?php endforeach; ?>
-
-                <div class="footer">
-                    <p><?php esc_html_e( 'Please show this ticket to the driver.', 'vs-bus-booking-manager' ); ?></p>
-                    <button onclick="window.print()" style="padding: 5px 10px; cursor: pointer;"><?php esc_html_e( 'Print Ticket', 'vs-bus-booking-manager' ); ?></button>
-                </div>
-            </div>
-        </body>
-        </html>
-        <?php
-        return ob_get_clean();
-    }
-
-    /**
-     * Add Menu Item to My Account.
-     */
     public function add_ticket_menu_to_account( $items ) {
-        // Insert after Dashboard (or wherever preferred)
         $new_items = array();
         foreach ( $items as $key => $value ) {
             $new_items[ $key ] = $value;
@@ -378,49 +332,59 @@ class VSBBM_Ticket_Manager {
         return $new_items;
     }
 
-    /**
-     * Display Tickets in My Account.
-     */
     public function display_tickets_in_account() {
-        global $wpdb;
-        $table_name = $wpdb->prefix . self::$table_name;
-        $user_id    = get_current_user_id();
-
-        // Get orders for this user
-        $orders = wc_get_orders( array(
-            'customer' => $user_id,
-            'status'   => array( 'completed', 'processing' ),
-            'limit'    => -1,
-            'return'   => 'ids',
-        ) );
+        $user_id = get_current_user_id();
+        $orders = wc_get_orders( array( 'customer' => $user_id, 'status' => array( 'completed', 'processing' ), 'limit' => -1, 'return' => 'ids' ) );
 
         if ( empty( $orders ) ) {
-            echo '<div class="woocommerce-message woocommerce-message--info woocommerce-Message woocommerce-Message--info woocommerce-info">' . esc_html__( 'No tickets found.', 'vs-bus-booking-manager' ) . '</div>';
+            echo '<div class="woocommerce-message woocommerce-info">' . esc_html__( 'No tickets found.', 'vs-bus-booking-manager' ) . '</div>';
             return;
         }
 
-        $order_ids_placeholder = implode( ',', array_fill( 0, count( $orders ), '%d' ) );
+        foreach ( $orders as $order_id ) {
+            if ( ! $this->tickets_exist_for_order( $order_id ) ) {
+                $this->generate_tickets_for_order( $order_id );
+            }
+        }
+
+        $this->render_tickets_table( $orders );
+    }
+
+    public function display_tickets_on_order_page( $order ) {
+        if ( ! $order ) return;
         
-        $tickets = $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM $table_name WHERE order_id IN ($order_ids_placeholder) ORDER BY created_at DESC",
-            $orders
-        ) );
+        if ( ! $this->tickets_exist_for_order( $order->get_id() ) ) {
+            $this->generate_tickets_for_order( $order->get_id() );
+        }
+
+        if ( $this->tickets_exist_for_order( $order->get_id() ) ) {
+            echo '<h2 class="woocommerce-order-details__title">' . esc_html__( 'Electronic Tickets', 'vs-bus-booking-manager' ) . '</h2>';
+            $this->render_tickets_table( array( $order->get_id() ) );
+        }
+    }
+
+    private function render_tickets_table( $order_ids ) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+        
+        if ( empty( $order_ids ) ) return;
+
+        $ids_string = implode( ',', array_map( 'intval', $order_ids ) );
+        $tickets = $wpdb->get_results( "SELECT * FROM $table_name WHERE order_id IN ($ids_string) AND status = 'active' ORDER BY created_at DESC" );
 
         if ( empty( $tickets ) ) {
-            echo '<div class="woocommerce-message woocommerce-message--info woocommerce-Message woocommerce-Message--info woocommerce-info">' . esc_html__( 'No tickets found.', 'vs-bus-booking-manager' ) . '</div>';
+            echo '<p>' . esc_html__( 'No tickets available.', 'vs-bus-booking-manager' ) . '</p>';
             return;
         }
 
         ?>
-        <h3><?php esc_html_e( 'My Bus Tickets', 'vs-bus-booking-manager' ); ?></h3>
-        <table class="woocommerce-orders-table shop_table shop_table_responsive my_account_orders account-orders-table">
+        <table class="woocommerce-orders-table shop_table shop_table_responsive my_account_orders">
             <thead>
                 <tr>
                     <th><?php esc_html_e( 'Ticket No', 'vs-bus-booking-manager' ); ?></th>
                     <th><?php esc_html_e( 'Seat', 'vs-bus-booking-manager' ); ?></th>
                     <th><?php esc_html_e( 'Departure', 'vs-bus-booking-manager' ); ?></th>
-                    <th><?php esc_html_e( 'Status', 'vs-bus-booking-manager' ); ?></th>
-                    <th><?php esc_html_e( 'Actions', 'vs-bus-booking-manager' ); ?></th>
+                    <th><?php esc_html_e( 'Download', 'vs-bus-booking-manager' ); ?></th>
                 </tr>
             </thead>
             <tbody>
@@ -438,13 +402,14 @@ class VSBBM_Ticket_Manager {
                     <td data-title="<?php esc_attr_e( 'Departure', 'vs-bus-booking-manager' ); ?>">
                         <?php echo esc_html( $date_display ); ?>
                     </td>
-                    <td data-title="<?php esc_attr_e( 'Status', 'vs-bus-booking-manager' ); ?>">
-                        <?php echo esc_html( ucfirst( $ticket->status ) ); ?>
-                    </td>
-                    <td data-title="<?php esc_attr_e( 'Actions', 'vs-bus-booking-manager' ); ?>">
-                        <a href="<?php echo esc_url( wc_get_endpoint_url( 'ticket-download', $ticket->id, wc_get_page_permalink( 'myaccount' ) ) ); ?>" class="woocommerce-button button view">
-                            <?php esc_html_e( 'View Ticket', 'vs-bus-booking-manager' ); ?>
-                        </a>
+                    <td data-title="<?php esc_attr_e( 'Download', 'vs-bus-booking-manager' ); ?>">
+                        <?php if ( ! empty( $ticket->pdf_path ) ) : ?>
+                            <a href="<?php echo esc_url( wc_get_endpoint_url( 'ticket-download', $ticket->id, wc_get_page_permalink( 'myaccount' ) ) ); ?>" class="button download-ticket">
+                                <?php esc_html_e( 'PDF', 'vs-bus-booking-manager' ); ?>
+                            </a>
+                        <?php else : ?>
+                            <span class="status-processing"><?php esc_html_e( 'Processing', 'vs-bus-booking-manager' ); ?></span>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -452,25 +417,6 @@ class VSBBM_Ticket_Manager {
         </table>
         <?php
     }
-    
-    // ... Methods for QR validation & Use (Ticket Scanner) can be added here ...
-    // kept minimal for Phase 1.
-    
-    /**
-     * Mark ticket as used (API/Scanner).
-     */
-    public static function use_ticket( $ticket_id ) {
-        global $wpdb;
-        $table_name = $wpdb->prefix . self::$table_name;
-        return $wpdb->update( 
-            $table_name, 
-            array( 'status' => 'used', 'used_at' => current_time( 'mysql' ) ), 
-            array( 'id' => $ticket_id ),
-            array( '%s', '%s' ),
-            array( '%d' )
-        );
-    }
 }
 
-// Initialize
 VSBBM_Ticket_Manager::get_instance();
