@@ -1,213 +1,707 @@
 <?php
 /**
- * Plugin Name:       vsBus Booking Manager
- * Plugin URI:        https://vernasoft.ir
- * Description:       Bus seat reservation system with graphical selection, time-based scheduling, and PDF tickets.
- * Version:           2.0.0
- * Author:            VernaSoft (Kazem Alghasi)
- * Author URI:        https://vernasoft.ir
- * Text Domain:       vs-bus-booking-manager
- * Domain Path:       /languages
- * Requires at least: 5.6
- * Requires PHP:      7.4
- * License:           GPL v2 or later
+ * Plugin Name: VS Bus Booking Manager
+ * Plugin URI: https://vs-plugins.com/bus-booking-manager
+ * Description: سیستم حرفه‌ای رزرواسیون و مدیریت اتوبوس با معماری ماژولار و پشتیبانی از نسخه‌های Free/Pro
+ * Version: 2.0.1
+ * Author: VernaSoft
+ * Author URI: https://vernasoft.ir
+ * License: GPL v2 or later
+ * Text Domain: vs-bus-booking-manager
+ * Domain Path: /languages
+ * Requires at least: 6.0
+ * Requires PHP: 7.4
  */
 
-defined( 'ABSPATH' ) || exit;
-
-// تعریف ثابت‌های پلاگین
-if ( ! defined( 'VSBBM_VERSION' ) ) {
-    define( 'VSBBM_VERSION', '2.0.0' );
-}
-if ( ! defined( 'VSBBM_PLUGIN_URL' ) ) {
-    define( 'VSBBM_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-}
-if ( ! defined( 'VSBBM_PLUGIN_PATH' ) ) {
-    define( 'VSBBM_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
+// Prevent direct access
+if (!defined('ABSPATH')) {
+    exit;
 }
 
 /**
- * Main Plugin Class
+ * 🔒 امنیت - جلوگیری از دسترسی مستقیم
  */
-class VS_Bus_Booking_Manager {
+defined('ABSPATH') or die('دسترسی غیرمجاز!');
 
+/**
+ * 🏗️ تعریف Constants پایه
+ */
+define('VSBBM_VERSION', '2.0.1');
+define('VSBBM_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('VSBBM_PLUGIN_PATH', plugin_dir_path(__FILE__));
+define('VSBBM_PLUGIN_FILE', __FILE__);
+define('VSBBM_PLUGIN_BASENAME', plugin_basename(__FILE__));
+
+// Constants برای مسیرهای اصلی
+define('VSBBM_CORE_PATH', VSBBM_PLUGIN_PATH . 'core/');
+define('VSBBM_MODULES_PATH', VSBBM_PLUGIN_PATH . 'modules/');
+define('VSBBM_TEMPLATES_PATH', VSBBM_PLUGIN_PATH . 'templates/');
+define('VSBBM_ASSETS_PATH', VSBBM_PLUGIN_PATH . 'assets/');
+define('VSBBM_INCLUDES_PATH', VSBBM_PLUGIN_PATH . 'includes/');
+
+/**
+ * 🎯 کلاس اصلی پلاگین
+ */
+final class VS_Bus_Booking_Manager
+{
     /**
-     * Singleton instance
+     * Instance شیء پلاگین
      */
     private static $instance = null;
 
     /**
-     * Get the singleton instance.
+     * ماژول‌های فعال
      */
-    public static function get_instance() {
-        if ( null === self::$instance ) {
+    private $modules = [];
+
+    /**
+     * Singleton Instance
+     */
+    public static function instance()
+    {
+        if (is_null(self::$instance)) {
             self::$instance = new self();
         }
         return self::$instance;
     }
 
     /**
-     * Constructor.
+     * Constructor
      */
-    private function __construct() {
-        $this->load_dependencies();
+    private function __construct()
+    {
+        $this->define_constants();
         $this->init_hooks();
+        $this->check_requirements();
     }
 
     /**
-     * Load all required files.
+     * تعریف Constants اضافی
      */
-    private function load_dependencies() {
-        // 0. Composer Autoloader (اولویت اول برای PDF)
-        if ( file_exists( VSBBM_PLUGIN_PATH . 'vendor/autoload.php' ) ) {
-            require_once VSBBM_PLUGIN_PATH . 'vendor/autoload.php';
+    private function define_constants()
+    {
+        // Constants برای نوع لایسنس
+        define('VSBBM_LICENSE_FREE', 'free');
+        define('VSBBM_LICENSE_PRO', 'pro');
+        define('VSBBM_LICENSE_ENTERPRISE', 'enterprise');
+
+        // Constants برای وضعیت لایسنس
+        define('VSBBM_LICENSE_ACTIVE', 'active');
+        define('VSBBM_LICENSE_EXPIRED', 'expired');
+        define('VSBBM_LICENSE_CANCELLED', 'cancelled');
+
+        // Constants برای نسخه دیتابیس
+        define('VSBBM_DB_VERSION', '2.0.1');
+    }
+
+    /**
+     * ثبت هوک‌های وردپرس
+     */
+    private function init_hooks()
+    {
+        // هوک‌های فعال‌سازی و غیرفعال‌سازی
+        register_activation_hook(__FILE__, [$this, 'activate']);
+        register_deactivation_hook(__FILE__, [$this, 'deactivate']);
+
+        // هوک‌های اجرایی
+        add_action('plugins_loaded', [$this, 'init_plugin'], 0);
+        add_action('init', [$this, 'load_textdomain']);
+
+        // هوک‌های مدیریت لایسنس
+        add_action('admin_init', [$this, 'check_license_status']);
+
+        // هوک بررسی به‌روزرسانی دیتابیس
+        add_action('admin_init', [$this, 'check_db_version']);
+    }
+
+    /**
+     * بررسی پیش‌نیازهای سیستم
+     */
+    private function check_requirements()
+    {
+        require_once VSBBM_INCLUDES_PATH . 'class-requirements-checker.php';
+        
+        if (file_exists(VSBBM_INCLUDES_PATH . 'class-requirements-checker.php')) {
+            $checker = new VSBBM_Requirements_Checker();
+            $checker->check();
+        }
+    }
+
+    /**
+     * بررسی نسخه دیتابیس
+     */
+    public function check_db_version()
+    {
+        $current_db_version = get_option('vsbbm_db_version', '1.0.0');
+        
+        if (version_compare($current_db_version, VSBBM_DB_VERSION, '<')) {
+            $this->upgrade_database($current_db_version);
+        }
+    }
+
+    /**
+     * ارتقاء دیتابیس
+     */
+    private function upgrade_database($from_version)
+    {
+        // ایجاد جداول جدید یا آپدیت ساختار
+        $this->create_tables();
+        
+        // به‌روزرسانی نسخه دیتابیس
+        update_option('vsbbm_db_version', VSBBM_DB_VERSION);
+        
+        $this->log_event('database_upgraded', 'دیتابیس از نسخه ' . $from_version . ' به ' . VSBBM_DB_VERSION . ' ارتقاء یافت');
+    }
+
+    /**
+     * فعال‌سازی پلاگین
+     */
+    public function activate()
+    {
+        // ایجاد جداول دیتابیس
+        $this->create_tables();
+
+        // راه‌اندازی داده‌های اولیه
+        $this->setup_default_data();
+
+        // ثبت نسخه دیتابیس
+        update_option('vsbbm_db_version', VSBBM_DB_VERSION);
+
+        // ثبت رویداد فعال‌سازی
+        $this->log_event('plugin_activated', 'پلاگین نسخه ' . VSBBM_VERSION . ' فعال شد');
+
+        // فلاش برای نمایش پیام موفقیت
+        set_transient('vsbbm_activated', true, 30);
+    }
+
+    /**
+     * غیرفعال‌سازی پلاگین
+     */
+    public function deactivate()
+    {
+        // پاک کردن cron jobs
+        $this->clear_scheduled_events();
+
+        // ثبت رویداد غیرفعال‌سازی
+        $this->log_event('plugin_deactivated', 'پلاگین غیرفعال شد');
+    }
+
+    /**
+     * ایجاد جداول دیتابیس
+     */
+    private function create_tables()
+    {
+        global $wpdb;
+
+        $charset_collate = $wpdb->get_charset_collate();
+
+        // 🗃️ جدول اتوبوس‌ها
+        $table_buses = $wpdb->prefix . 'vsbbm_buses';
+        $sql_buses = "CREATE TABLE {$table_buses} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            bus_number VARCHAR(50) NOT NULL,
+            bus_name VARCHAR(255) NOT NULL,
+            total_seats INT NOT NULL DEFAULT 40,
+            amenities TEXT,
+            status ENUM('active', 'inactive', 'maintenance') DEFAULT 'active',
+            created_by BIGINT UNSIGNED NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY bus_number (bus_number)
+        ) {$charset_collate};";
+
+        // 🎫 جدول رزروها
+        $table_bookings = $wpdb->prefix . 'vsbbm_bookings';
+        $sql_bookings = "CREATE TABLE {$table_bookings} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            booking_number VARCHAR(100) NOT NULL,
+            bus_id BIGINT UNSIGNED NOT NULL,
+            customer_name VARCHAR(255) NOT NULL,
+            customer_email VARCHAR(255) NOT NULL,
+            customer_phone VARCHAR(50),
+            seat_numbers VARCHAR(255) NOT NULL,
+            total_seats INT NOT NULL DEFAULT 1,
+            journey_date DATE NOT NULL,
+            journey_time TIME NOT NULL,
+            total_amount DECIMAL(10,2) NOT NULL,
+            currency VARCHAR(10) DEFAULT 'IRT',
+            status ENUM('pending', 'confirmed', 'cancelled', 'completed') DEFAULT 'pending',
+            payment_status ENUM('pending', 'paid', 'failed', 'refunded') DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY booking_number (booking_number),
+            KEY bus_id (bus_id),
+            KEY journey_date (journey_date),
+            KEY customer_email (customer_email)
+        ) {$charset_collate};";
+
+        // 🔐 جدول لایسنس‌ها
+        $table_licenses = $wpdb->prefix . 'vsbbm_licenses';
+        $sql_licenses = "CREATE TABLE {$table_licenses} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            license_key VARCHAR(255) NOT NULL,
+            customer_email VARCHAR(255) NOT NULL,
+            status ENUM('active', 'expired', 'cancelled') DEFAULT 'active',
+            product_type ENUM('free', 'pro', 'enterprise') DEFAULT 'free',
+            expires_at DATETIME,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY license_key (license_key),
+            KEY customer_email (customer_email),
+            KEY status (status)
+        ) {$charset_collate};";
+
+        // 📊 جدول لاگ‌ها
+        $table_logs = $wpdb->prefix . 'vsbbm_logs';
+        $sql_logs = "CREATE TABLE {$table_logs} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            event_type VARCHAR(100) NOT NULL,
+            event_message TEXT NOT NULL,
+            user_id BIGINT UNSIGNED,
+            ip_address VARCHAR(45),
+            user_agent TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY event_type (event_type),
+            KEY user_id (user_id),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        
+        $tables_created = dbDelta([
+            $sql_buses,
+            $sql_bookings,
+            $sql_licenses,
+            $sql_logs
+        ]);
+
+        // ثبت رویداد ایجاد جداول
+        $this->log_event('tables_created', 'جداول دیتابیس ایجاد شدند: ' . implode(', ', array_keys($tables_created)));
+    }
+
+    /**
+     * راه‌اندازی داده‌های اولیه
+     */
+    private function setup_default_data()
+    {
+        // ایجاد لایسنس پیش‌فرض رایگان
+        $this->setup_default_license();
+
+        // ایجاد نقش‌های کاربری لازم
+        $this->setup_user_roles();
+
+        // تنظیم گزینه‌های پیش‌فرض
+        $this->setup_default_options();
+    }
+
+    /**
+     * ایجاد لایسنس پیش‌فرض
+     */
+    private function setup_default_license()
+    {
+        global $wpdb;
+        
+        $table_licenses = $wpdb->prefix . 'vsbbm_licenses';
+        
+        // بررسی وجود لایسنس
+        $existing_license = $wpdb->get_var("SELECT COUNT(*) FROM {$table_licenses} WHERE product_type = 'free'");
+        
+        if (!$existing_license) {
+            $default_license = [
+                'license_key' => 'FREE-' . strtoupper(wp_generate_password(16, false)),
+                'customer_email' => get_option('admin_email'),
+                'status' => VSBBM_LICENSE_ACTIVE,
+                'product_type' => VSBBM_LICENSE_FREE,
+                'expires_at' => null,
+                'created_at' => current_time('mysql')
+            ];
+
+            $wpdb->insert($table_licenses, $default_license);
+        }
+    }
+
+    /**
+     * ایجاد نقش‌های کاربری
+     */
+    private function setup_user_roles()
+    {
+        // نقش اپراتور اتوبوس
+        if (!get_role('bus_operator')) {
+            add_role('bus_operator', 'اپراتور اتوبوس', [
+                'read' => true,
+                'manage_bus_bookings' => true,
+                'view_bus_reports' => true
+            ]);
         }
 
-        // 1. Utilities & Helpers
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-cache-manager.php';
-        
-        // 2. Models (منطق دیتابیس - باید قبل از کنترلرها باشند)
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-blacklist.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-reservations.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-ticket-manager.php';
-        
-        // 3. Controllers (مدیریت منطق)
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-manager.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-booking-handler.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-email-notifications.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-sms-notifications.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-license-manager.php';
-        
-        // 4. Admin & API
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-admin-interface.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
+        // نقش مدیر رزرواسیون
+        if (!get_role('booking_manager')) {
+            add_role('booking_manager', 'مدیر رزرواسیون', [
+                'read' => true,
+                'manage_bus_bookings' => true,
+                'manage_buses' => true,
+                'view_bus_reports' => true,
+                'export_bookings' => true
+            ]);
+        }
+    }
 
-        // 5. Elementor Integration (فقط اگر المنتور فعال باشد)
-        add_action( 'plugins_loaded', function() {
-            if ( did_action( 'elementor/loaded' ) ) {
-                if ( file_exists( VSBBM_PLUGIN_PATH . 'includes/class-elementor-integration.php' ) ) {
-                    require_once VSBBM_PLUGIN_PATH . 'includes/class-elementor-integration.php';
-                }
+    /**
+     * تنظیم گزینه‌های پیش‌فرض
+     */
+    private function setup_default_options()
+    {
+        $default_options = [
+            'vsbbm_currency' => 'IRT',
+            'vsbbm_timezone' => 'Asia/Tehran',
+            'vsbbm_date_format' => 'Y/m/d',
+            'vsbbm_seat_capacity' => 40,
+            'vsbbm_booking_timeout' => 15,
+            'vsbbm_license_type' => 'free',
+            'vsbbm_version' => VSBBM_VERSION
+        ];
+
+        foreach ($default_options as $key => $value) {
+            if (get_option($key) === false) {
+                add_option($key, $value);
+            }
+        }
+    }
+
+    /**
+     * پاک کردن رویدادهای زمان‌بندی شده
+     */
+    private function clear_scheduled_events()
+    {
+        $events = [
+            'vsbbm_daily_cleanup',
+            'vsbbm_license_check',
+            'vsbbm_backup_data'
+        ];
+
+        foreach ($events as $event) {
+            $timestamp = wp_next_scheduled($event);
+            if ($timestamp) {
+                wp_unschedule_event($timestamp, $event);
+            }
+        }
+    }
+
+    /**
+     * بارگذاری فایل‌های ترجمه
+     */
+    public function load_textdomain()
+    {
+        load_plugin_textdomain(
+            'vs-bus-booking-manager',
+            false,
+            dirname(plugin_basename(__FILE__)) . '/languages'
+        );
+    }
+
+    /**
+     * بررسی وضعیت لایسنس
+     */
+    public function check_license_status()
+    {
+        // این تابع در فاز ۲ کامل خواهد شد
+        $license_manager = $this->get_license_manager();
+        if ($license_manager) {
+            $license_manager->validate_license();
+        }
+    }
+
+    /**
+     * راه‌اندازی اصلی پلاگین
+     */
+    public function init_plugin()
+    {
+        // بررسی وابستگی‌ها
+        if (!$this->check_dependencies()) {
+            return;
+        }
+
+        // بارگذاری core
+        $this->load_core();
+
+        // بارگذاری ماژول‌ها
+        $this->load_modules();
+
+        // راه‌اندازی API
+        $this->init_rest_api();
+
+        // ثبت هوک‌های frontend
+        $this->init_frontend();
+
+        // ثبت هوک‌های admin
+        if (is_admin()) {
+            $this->init_admin();
+        }
+
+        // ثبت رویداد راه‌اندازی
+        $this->log_event('plugin_initialized', 'پلاگین نسخه ' . VSBBM_VERSION . ' راه‌اندازی شد');
+    }
+
+    /**
+     * بررسی وابستگی‌ها
+     */
+    private function check_dependencies()
+    {
+        $dependencies = [
+            'php_version' => version_compare(PHP_VERSION, '7.4.0', '>='),
+            'wordpress_version' => version_compare(get_bloginfo('version'), '6.0', '>=')
+        ];
+
+        foreach ($dependencies as $dep => $status) {
+            if (!$status) {
+                $this->handle_dependency_error($dep);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * مدیریت خطای وابستگی‌ها
+     */
+    private function handle_dependency_error($dependency)
+    {
+        $messages = [
+            'php_version' => 'نیازمند PHP نسخه 7.4 یا بالاتر است',
+            'wordpress_version' => 'نیازمند وردپرس نسخه 6.0 یا بالاتر است'
+        ];
+
+        $message = $messages[$dependency] ?? 'وابستگی ضروری برقرار نیست';
+
+        add_action('admin_notices', function() use ($message) {
+            echo '<div class="error"><p>VS Bus Booking Manager: ' . esc_html($message) . '</p></div>';
+        });
+
+        $this->log_event('dependency_error', $message);
+    }
+
+    /**
+     * بارگذاری core سیستم
+     */
+    private function load_core()
+    {
+        $core_files = [
+            'class-core.php',
+            'license/class-license-manager.php',
+            'database/class-database-manager.php',
+            'api/class-rest-api.php',
+            'admin/class-admin-manager.php',
+            'frontend/class-frontend-manager.php'
+        ];
+
+        foreach ($core_files as $file) {
+            $file_path = VSBBM_CORE_PATH . $file;
+            if (file_exists($file_path)) {
+                require_once $file_path;
+            }
+        }
+
+        // راه‌اندازی core
+        if (class_exists('VSBBM_Core')) {
+            VSBBM_Core::instance()->init();
+        }
+    }
+
+    /**
+     * بارگذاری ماژول‌ها
+     */
+    private function load_modules()
+    {
+        $module_dirs = [
+            'free' => VSBBM_MODULES_PATH . 'free/',
+            'pro' => VSBBM_MODULES_PATH . 'pro/',
+            'platform' => VSBBM_MODULES_PATH . 'platform/'
+        ];
+
+        foreach ($module_dirs as $type => $path) {
+            if (is_dir($path)) {
+                $this->load_module_type($type, $path);
+            }
+        }
+    }
+
+    /**
+     * بارگذاری ماژول‌های خاص
+     */
+    private function load_module_type($type, $path)
+    {
+        $module_files = glob($path . '*.php');
+
+        foreach ($module_files as $file) {
+            if (file_exists($file)) {
+                $module_name = basename($file, '.php');
+                $this->modules[$type][$module_name] = require_once $file;
+            }
+        }
+    }
+
+    /**
+     * راه‌اندازی REST API
+     */
+    private function init_rest_api()
+    {
+        add_action('rest_api_init', function() {
+            if (class_exists('VSBBM_REST_API')) {
+                $api_manager = new VSBBM_REST_API();
+                $api_manager->register_routes();
             }
         });
     }
 
     /**
-     * Initialize hooks.
+     * راه‌اندازی frontend
      */
-    private function init_hooks() {
-        register_activation_hook( __FILE__, array( $this, 'activate' ) );
-        register_deactivation_hook( __FILE__, array( $this, 'deactivate' ) );
-
-        add_action( 'init', array( $this, 'init' ) );
-        add_action( 'admin_init', array( $this, 'admin_init' ) );
+    private function init_frontend()
+    {
+        if (class_exists('VSBBM_Frontend_Manager')) {
+            $frontend_manager = new VSBBM_Frontend_Manager();
+            $frontend_manager->init();
+        }
     }
 
     /**
-     * Activation logic (Create Tables).
+     * راه‌اندازی admin
      */
-    public function activate() {
-        // ایجاد جداول کلاس‌های مدل
-        if ( class_exists( 'VSBBM_Blacklist' ) ) {
-            VSBBM_Blacklist::create_table();
+    private function init_admin()
+    {
+        if (class_exists('VSBBM_Admin_Manager')) {
+            $admin_manager = new VSBBM_Admin_Manager();
+            $admin_manager->init();
         }
-        if ( class_exists( 'VSBBM_Seat_Reservations' ) ) {
-            VSBBM_Seat_Reservations::create_table();
-        }
-        if ( class_exists( 'VSBBM_Ticket_Manager' ) ) {
-            VSBBM_Ticket_Manager::create_table();
-        }
-        
-        // ایجاد جدول توکن‌های API
-        $this->create_api_tokens_table();
-
-        flush_rewrite_rules();
     }
 
     /**
-     * Create API tokens table.
+     * ثبت رویداد در لاگ
      */
-    private function create_api_tokens_table() {
+    public function log_event($event_type, $message)
+    {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'vsbbm_api_tokens';
-        $charset_collate = $wpdb->get_charset_collate();
+        
+        $table_logs = $wpdb->prefix . 'vsbbm_logs';
+        
+        $log_data = [
+            'event_type' => $event_type,
+            'event_message' => $message,
+            'user_id' => get_current_user_id(),
+            'ip_address' => $this->get_client_ip(),
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'created_at' => current_time('mysql')
+        ];
 
-        $sql = "CREATE TABLE $table_name (
-            id int(11) NOT NULL AUTO_INCREMENT,
-            user_id bigint(20) unsigned NOT NULL,
-            token varchar(255) NOT NULL,
-            expires_at datetime NOT NULL,
-            created_at datetime DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY  (id),
-            UNIQUE KEY token (token),
-            KEY user_id (user_id)
-        ) $charset_collate;";
-
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-        dbDelta( $sql );
+        $wpdb->insert($table_logs, $log_data);
     }
 
     /**
-     * Deactivation logic.
+     * دریافت IP کاربر
      */
-    public function deactivate() {
-        flush_rewrite_rules();
-        // معمولاً جداول را هنگام غیرفعال‌سازی پاک نمی‌کنیم تا داده‌ها حفظ شوند
-        // برای پاکسازی کامل باید از uninstall.php استفاده کرد
-    }
+    private function get_client_ip()
+    {
+        $ip_keys = [
+            'HTTP_X_REAL_IP',
+            'HTTP_CLIENT_IP',
+            'HTTP_X_FORWARDED_FOR',
+            'HTTP_X_FORWARDED',
+            'HTTP_FORWARDED_FOR',
+            'HTTP_FORWARDED',
+            'REMOTE_ADDR'
+        ];
 
-    /**
-     * Core initialization.
-     */
-    public function init() {
-        // بارگذاری ترجمه‌ها
-        load_plugin_textdomain( 'vs-bus-booking-manager', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
-        
-        // مقداردهی اولیه کلاس‌ها (Controllers)
-        // نکته: کلاس‌های مدل (مانند Reservations) به صورت Singleton و Static accessed هستند و نیاز به init صریح ندارند
-        
-        // راه اندازی Seat Manager (به صورت Singleton)
-        VSBBM_Seat_Manager::get_instance();
-        
-        // راه اندازی هندلرهای دیگر
-        VSBBM_Booking_Handler::init();
-        VSBBM_Admin_Interface::init();
-        VSBBM_REST_API::init();
-        
-        // Notifications
-        VSBBM_Email_Notifications::get_instance();
-        VSBBM_SMS_Notifications::get_instance();
-        
-        // License
-        if ( class_exists( 'VSBBM_License_Manager' ) ) {
-            VSBBM_License_Manager::get_instance();
+        foreach ($ip_keys as $key) {
+            if (!empty($_SERVER[$key])) {
+                $ip = $_SERVER[$key];
+                if (strpos($ip, ',') !== false) {
+                    $ips = explode(',', $ip);
+                    $ip = trim($ips[0]);
+                }
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    return $ip;
+                }
+            }
         }
+
+        return '0.0.0.0';
     }
 
     /**
-     * Admin specific initialization.
+     * دریافت مدیریت لایسنس
      */
-    public function admin_init() {
-        // لینک تنظیمات در صفحه پلاگین‌ها
-        add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), array( $this, 'add_settings_link' ) );
+    public function get_license_manager()
+    {
+        if (class_exists('VSBBM_License_Manager')) {
+            return VSBBM_License_Manager::instance();
+        }
+        return null;
     }
 
     /**
-     * Add settings link.
+     * دریافت ماژول‌ها
      */
-    public function add_settings_link( $links ) {
-        $settings_link = '<a href="' . admin_url( 'admin.php?page=vsbbm-settings' ) . '">' . __( 'Settings', 'vs-bus-booking-manager' ) . '</a>';
-        array_unshift( $links, $settings_link );
-        return $links;
+    public function get_modules($type = null)
+    {
+        if ($type) {
+            return $this->modules[$type] ?? [];
+        }
+        return $this->modules;
+    }
+
+    /**
+     * بررسی فعال بودن ماژول
+     */
+    public function is_module_active($module_name, $type = 'free')
+    {
+        return isset($this->modules[$type][$module_name]);
+    }
+
+    /**
+     * دریافت نسخه پلاگین
+     */
+    public function get_version()
+    {
+        return VSBBM_VERSION;
     }
 }
 
 /**
- * Main instance wrapper.
+ * 📦 تابع اصلی برای دسترسی به پلاگین
  */
-function VSBBM() {
-    return VS_Bus_Booking_Manager::get_instance();
+function VS_Bus_Booking_Manager() {
+    return VS_Bus_Booking_Manager::instance();
 }
 
-// Start the plugin
-VSBBM();
+// راه‌اندازی پلاگین
+add_action('plugins_loaded', 'VS_Bus_Booking_Manager');
+
+/**
+ * 🔧 هوک فعال‌سازی شبکه (برای Multisite)
+ */
+register_activation_hook(__FILE__, function($network_wide) {
+    if ($network_wide && is_multisite()) {
+        foreach (get_sites() as $site) {
+            switch_to_blog($site->blog_id);
+            VS_Bus_Booking_Manager()->activate();
+            restore_current_blog();
+        }
+    } else {
+        VS_Bus_Booking_Manager()->activate();
+    }
+});
+
+/**
+ * 📝 هوک حذف پلاگین
+ */
+register_uninstall_hook(__FILE__, 'vsbbm_uninstall');
+
+function vsbbm_uninstall() {
+    // این تابع در فاز بعدی کامل خواهد شد
+    // امکان حذف داده‌ها با تأیید کاربر
+}
