@@ -171,7 +171,7 @@
                 if (revenueCanvas && typeof Chart !== 'undefined') {
                     this.renderRevenueChart(revenueCanvas, vsbbm_admin.chart_data.sales);
                 }
-                
+
                 if (statusCanvas && typeof Chart !== 'undefined') {
                     this.renderStatusChart(statusCanvas, vsbbm_admin.chart_data.status);
                 }

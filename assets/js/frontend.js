@@ -30,7 +30,7 @@
             this.cacheElements();
             this.bindEvents();
             this.initDatepicker();
-            
+
             if (this.settings.schedule_settings.enable_schedule !== 'yes') {
                 this.loadSeatMap(0);
             }
@@ -57,7 +57,7 @@
         initDatepicker: function() {
             if (!this.$dateInput.length) return;
             const schedule = this.settings.schedule_settings;
-            
+
             this.$dateInput.datepicker({
                 dateFormat: 'yy-mm-dd',
                 minDate: parseInt(schedule.min_days_advance) || 0,
@@ -85,7 +85,7 @@
             if (type === 'specific_dates') {
                 const allowedDates = schedule.specific_dates || [];
                 return [allowedDates.includes(dateString)];
-            } 
+            }
             if (type === 'weekdays') {
                 const allowedDays = schedule.allowed_weekdays || [];
                 return [allowedDays.includes(dayName)];
@@ -124,9 +124,9 @@
 
             const cols = parseInt(this.$container.data('cols'));
             let html = '<div class="vsbbm-grid-wrapper" style="display: grid; grid-template-columns: repeat(' + (cols * 2 + 1) + ', 1fr); gap: 10px;">';
-            
+
             const seatNumbers = Object.keys(allSeats).sort((a, b) => parseInt(a) - parseInt(b));
-            
+
             if (seatNumbers.length === 0) {
                 this.$map.html('<p>چیدمان صندلی تعریف نشده است.</p>');
                 return;
@@ -138,16 +138,16 @@
                 const statusClass = isReserved ? 'reserved' : 'available';
                 const seatLabel = seatInfo.label || seatNum;
                 const price = seatInfo.price || 0;
-                
+
                 // Tooltip info
                 const tooltip = isReserved ? 'رزرو شده' : `صندلی ${seatLabel} - قیمت: ${price > 0 ? price : 'پایه'}`;
 
                 html += `
-                    <div class="vsbbm-seat ${statusClass}" 
-                         data-seat-number="${seatNum}" 
+                    <div class="vsbbm-seat ${statusClass}"
+                         data-seat-number="${seatNum}"
                          title="${tooltip}">
                         ${seatLabel}
-                        ${price > 0 ? '<span class="seat-price-badge"></span>' : ''} 
+                        ${price > 0 ? '<span class="seat-price-badge"></span>' : ''}
                     </div>
                 `;
             });
@@ -189,13 +189,26 @@
             } else {
                 $.ajax({
                     url: this.settings.ajax_url,
-                    data: { action: 'vsbbm_get_passenger_fields' },
+                    type: 'POST',
+                    data: {
+                        action: 'vsbbm_get_passenger_fields',
+                        nonce: this.settings.nonce
+                    },
                     success: (response) => {
                         if (response.success) {
                             this.state.formFieldsCache = response.data; // کش کردن
                             this.$passengerFields.find('.loading-text').remove();
                             this.renderPassengerFormHTML(seatNum, response.data);
+                        } else {
+                            this.$passengerFields.find('.loading-text')
+                                .text('خطا در بارگذاری فرم. لطفاً صفحه را بازخوانی کنید.')
+                                .css('color', 'red');
                         }
+                    },
+                    error: () => {
+                        this.$passengerFields.find('.loading-text')
+                            .text('خطا در ارتباط با سرور. لطفاً صفحه را بازخوانی کنید.')
+                            .css('color', 'red');
                     }
                 });
             }
@@ -203,18 +216,18 @@
 
         // تابع جدید برای رندر HTML فرم
         renderPassengerFormHTML: function(seatNum, fields) {
-            let html = `<div class="vsbbm-passenger-row" data-seat="${seatNum}">`;
-            html += `<div class="row-header"><h4>مسافر صندلی ${seatNum}</h4><button type="button" class="remove-seat-btn" onclick="jQuery('.vsbbm-seat[data-seat-number=${seatNum}]').click()">×</button></div>`;
-            html += `<div class="row-body">`;
-            
+            let html = `<div class="vsbbm-passenger-row" data-seat="${seatNum}">
+                <div class="row-header"><h4>مسافر صندلی ${seatNum}</h4><button type="button" class="remove-seat-btn" onclick="jQuery('.vsbbm-seat[data-seat-number=${seatNum}]').click()">×</button></div>
+                <div class="row-body">`;
+
             fields.forEach(field => {
                 const inputName = `passengers[${seatNum}][${field.label}]`; // استفاده از label به عنوان کلید
                 const required = field.required ? 'required' : '';
                 const validationAttr = field.validation ? `data-validate="${field.validation}"` : '';
-                
-                html += `<div class="form-item">`;
-                html += `<label>${field.label} ${field.required ? '*' : ''}</label>`;
-                
+
+                html += `<div class="form-item">
+                    <label>${field.label} ${field.required ? '*' : ''}</label>`;
+
                 if (field.type === 'select' && field.options) {
                     html += `<select name="${inputName}" class="vsbbm-input" ${required}>`;
                     // اگر آپشن‌ها آبجکت باشند (کلید => مقدار)
@@ -234,9 +247,9 @@
                 }
                 html += `</div>`;
             });
-            
-            html += `<input type="hidden" name="passengers[${seatNum}][seat_number]" value="${seatNum}">`;
-            html += `</div></div>`;
+
+            html += `<input type="hidden" name="passengers[${seatNum}][seat_number]" value="${seatNum}">
+                </div></div>`;
 
             this.$passengerFields.append(html);
         },
@@ -266,21 +279,21 @@
         // تابع اعتبارسنجی کد ملی ایران
         validateNationalCode: function(code) {
             if (code.length !== 10 || isNaN(code)) return false;
-            var code = code.split(''); 
+            var code = code.split('');
             var p = 10;
             var sum = 0;
-            
+
             for (var i = 0; i < 9; i++) {
                 sum += parseInt(code[i]) * p;
                 p--;
             }
-            
+
             var remainder = sum % 11;
             var control = parseInt(code[9]);
-            
+
             if (remainder < 2 && control === remainder) return true;
             if (remainder >= 2 && control === 11 - remainder) return true;
-            
+
             return false;
         },
 
@@ -301,12 +314,12 @@
                     const $input = $(this);
                     const name = $input.attr('name');
                     // Regex برای استخراج نام فیلد بین براکت دوم
-                    const match = name.match(/\[([^\]]+)\]$/); 
-                    
+                    const match = name.match(/\[([^\]]+)\]$/);
+
                     if (match) {
                         const key = match[1]; // نام فیلد (مثلا 'کد ملی')
                         const val = $input.val();
-                        
+
                         // بررسی اجباری بودن
                         if ($input.prop('required') && !val) {
                             isValid = false;
@@ -347,7 +360,7 @@
                 data: {
                     action: 'vsbbm_add_to_cart',
                     product_id: this.settings.product_id,
-                    vsbbm_departure_timestamp: this.state.departureTimestamp, // توجه: نام پارامتر
+                    vsbbm_departure_timestamp: this.state.departureTimestamp,
                     selected_seats: JSON.stringify(this.state.selectedSeats),
                     passengers_data: JSON.stringify(passengers),
                     nonce: this.settings.nonce

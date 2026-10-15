@@ -46,7 +46,7 @@ class VSBBM_Seat_Manager {
 
         add_action( 'add_meta_boxes', array( $this, 'add_seat_meta_box' ) );
         add_action( 'save_post_product', array( $this, 'save_seat_numbers' ) );
-        
+
         add_action( 'add_meta_boxes', array( $this, 'add_schedule_meta_box' ) );
         add_action( 'save_post_product', array( $this, 'save_schedule_settings' ) );
 
@@ -209,9 +209,9 @@ class VSBBM_Seat_Manager {
                     <option value="weekdays" <?php selected($settings['schedule_type'], 'weekdays'); ?>>Weekdays</option>
                     <option value="specific_dates" <?php selected($settings['schedule_type'], 'specific_dates'); ?>>Specific Dates</option>
                 </select></p>
-                
+
                 <div id="vsbbm_weekdays_container" style="display:<?php echo ('weekdays'===$settings['schedule_type'])?'block':'none'; ?>; border:1px solid #ddd; padding:10px;">
-                    <?php 
+                    <?php
                     $days = ['saturday'=>'Saturday', 'sunday'=>'Sunday', 'monday'=>'Monday', 'tuesday'=>'Tuesday', 'wednesday'=>'Wednesday', 'thursday'=>'Thursday', 'friday'=>'Friday'];
                     foreach($days as $k=>$v) {
                         $ch = in_array($k, $settings['allowed_weekdays']) ? 'checked' : '';
@@ -219,7 +219,7 @@ class VSBBM_Seat_Manager {
                     }
                     ?>
                 </div>
-                
+
                 <div id="vsbbm_dates_container" style="display:<?php echo ('specific_dates'===$settings['schedule_type'])?'block':'none'; ?>">
                     <label><?php _e('Dates (YYYY-MM-DD):', 'vs-bus-booking-manager'); ?></label>
                     <textarea name="vsbbm_specific_dates" class="widefat" rows="3"><?php echo esc_textarea(implode(', ', $settings['specific_dates'])); ?></textarea>
@@ -228,7 +228,7 @@ class VSBBM_Seat_Manager {
             </div>
             <script>jQuery(document).ready(function($){
                 $('#vsbbm_enable_schedule').change(function(){ $('#vsbbm_schedule_fields').toggle(this.checked); });
-                $('#vsbbm_schedule_type').change(function(){ 
+                $('#vsbbm_schedule_type').change(function(){
                     $('#vsbbm_weekdays_container, #vsbbm_dates_container').hide();
                     if($(this).val()=='weekdays') $('#vsbbm_weekdays_container').show();
                     if($(this).val()=='specific_dates') $('#vsbbm_dates_container').show();
@@ -245,10 +245,10 @@ class VSBBM_Seat_Manager {
         update_post_meta( $post_id, '_vsbbm_enable_schedule', isset($_POST['vsbbm_enable_schedule']) ? 'yes' : 'no' );
         update_post_meta( $post_id, '_vsbbm_schedule_type', sanitize_text_field($_POST['vsbbm_schedule_type']) );
         update_post_meta( $post_id, '_vsbbm_departure_time', sanitize_text_field($_POST['vsbbm_departure_time']) );
-        
+
         $weekdays = isset($_POST['vsbbm_allowed_weekdays']) ? array_map('sanitize_text_field', $_POST['vsbbm_allowed_weekdays']) : [];
         update_post_meta( $post_id, '_vsbbm_allowed_weekdays', $weekdays );
-        
+
         $dates = isset($_POST['vsbbm_specific_dates']) ? array_filter(array_map('trim', explode(',', sanitize_textarea_field($_POST['vsbbm_specific_dates'])))) : [];
         update_post_meta( $post_id, '_vsbbm_specific_dates', $dates );
     }
@@ -269,12 +269,12 @@ class VSBBM_Seat_Manager {
             echo '<p class="vsbbm-warning">' . esc_html__( 'Seat layout is not defined.', 'vs-bus-booking-manager' ) . '</p>';
             return;
         }
-        
+
         echo '<div id="vsbbm-seat-selector" class="vsbbm-seat-selector-container" ';
         echo 'data-product-id="' . esc_attr( $product->get_id() ) . '" ';
         echo 'data-cols="' . esc_attr( $settings['columns'] ) . '" ';
         echo 'data-price="' . esc_attr( $product->get_price() ) . '">';
-        
+
         if ( 'yes' === $schedule['enable_schedule'] ) {
             echo '<div class="vsbbm-departure-schedule-picker"><h3>' . __('Select Date', 'vs-bus-booking-manager') . '</h3>';
             echo '<input type="text" id="vsbbm_departure_date" readonly placeholder="' . __('Date', 'vs-bus-booking-manager') . '">';
@@ -300,7 +300,7 @@ class VSBBM_Seat_Manager {
 
     public function get_passenger_fields_ajax() {
         check_ajax_referer( 'vsbbm_seat_nonce', 'nonce' );
-        
+
         $saved_fields = get_option('vsbbm_passenger_fields');
         if ( empty($saved_fields) ) {
             $saved_fields = [
@@ -309,7 +309,7 @@ class VSBBM_Seat_Manager {
                 ['type'=>'tel', 'label'=>__('Phone', 'vs-bus-booking-manager'), 'required'=>false]
             ];
         }
-        
+
         $frontend_fields = [];
         $blacklist_target = get_option('vsbbm_blacklist_target_field', 'کد ملی');
 
@@ -320,19 +320,19 @@ class VSBBM_Seat_Manager {
                 'placeholder' => sanitize_text_field($field['placeholder']??''),
                 'required' => !empty($field['required']),
             ];
-            
+
             if ($field['type'] === 'select' && !empty($field['options'])) {
                 $data['options'] = array_map('trim', explode(',', $field['options']));
             }
-            
+
             if ($field['label'] === $blacklist_target) {
-                $data['validation'] = 'national_code'; 
+                $data['validation'] = 'national_code';
                 $data['required'] = true;
             }
-            
+
             $frontend_fields[] = $data;
         }
-        
+
         wp_send_json_success( $frontend_fields );
     }
 
@@ -378,9 +378,9 @@ class VSBBM_Seat_Manager {
         foreach ( $seats as $seat ) {
             $seat_info = [];
             foreach($passengers as $p) { if(isset($p['seat_number']) && $p['seat_number'] == $seat) $seat_info = $p; }
-            
+
             $res_id = VSBBM_Seat_Reservations::reserve_seat( $product_id, $seat, $timestamp, null, null, $seat_info );
-            
+
             if ( is_wp_error( $res_id ) ) {
                 VSBBM_Seat_Reservations::cancel_reservations_by_keys( $keys );
                 wp_send_json_error( [ 'message' => $res_id->get_error_message() ] );

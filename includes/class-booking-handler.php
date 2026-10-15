@@ -13,9 +13,23 @@ defined( 'ABSPATH' ) || exit;
 class VSBBM_Booking_Handler {
 
     /**
+     * Whether init() has already been run.
+     * Guards against duplicate hook registration (see P0-1 in docs/BUGS_AND_RISKS.md).
+     *
+     * @var bool
+     */
+    private static $initialized = false;
+
+    /**
      * Initialize hooks.
+     * Idempotent: safe to call multiple times; hooks register only once.
      */
     public static function init() {
+        if ( self::$initialized ) {
+            return;
+        }
+        self::$initialized = true;
+
         // Validation
         add_filter( 'woocommerce_add_to_cart_validation', array( __CLASS__, 'validate_booking' ), 10, 3 );
 
@@ -34,6 +48,9 @@ class VSBBM_Booking_Handler {
 
         // Order Storage
         add_action( 'woocommerce_checkout_create_order_line_item', array( __CLASS__, 'save_order_item_meta' ), 10, 4 );
+
+        // P0-3: Link reservations to order after checkout
+        add_action( 'woocommerce_checkout_order_processed', array( __CLASS__, 'link_reservations_to_order' ), 10, 3 );
 
         // UI Tweaks
         add_filter( 'woocommerce_product_single_add_to_cart_text', array( __CLASS__, 'change_add_to_cart_text' ), 10, 2 );
@@ -177,9 +194,6 @@ class VSBBM_Booking_Handler {
 
     /**
      * Save metadata to order items.
-     */
-    /**
-     * Save metadata to order items.
      * اصلاح شده: ذخیره داده‌های خام برای استفاده در تیکت منیجر
      */
     public static function save_order_item_meta( $item, $cart_item_key, $values, $order ) {
@@ -218,6 +232,11 @@ class VSBBM_Booking_Handler {
             }
         }
 
+        // P0-3: ذخیره کلیدهای رزرو برای اتصال بعدی به سفارش
+        if ( ! empty( $values['vsbbm_reservation_keys'] ) ) {
+            $item->add_meta_data( '_vsbbm_reservation_keys', $values['vsbbm_reservation_keys'] );
+        }
+
         // ذخیره تاریخ حرکت
         if ( ! empty( $values['vsbbm_departure_timestamp'] ) ) {
             $timestamp = $values['vsbbm_departure_timestamp'];
@@ -228,6 +247,34 @@ class VSBBM_Booking_Handler {
             // متا نمایشی
             $display_date = wp_date( 'Y/m/d H:i', $timestamp );
             $item->add_meta_data( __( 'Departure Date', 'vs-bus-booking-manager' ), $display_date );
+        }
+    }
+
+    /**
+     * P0-3: Link reservations to the order after successful checkout.
+     *
+     * این متد کلیدهای رزرو ذخیره‌شده در order item meta را می‌خواند و
+     * رزروهای موقت را به order_id وصل می‌کند. این کار قبلاً فقط در مسیر
+     * REST API انجام می‌شد و مسیر سایت (AJAX) شکسته بود.
+     *
+     * @param int        $order_id    Order ID.
+     * @param array      $posted_data Posted checkout data.
+     * @param WC_Order   $order       Order object.
+     */
+    public static function link_reservations_to_order( $order_id, $posted_data, $order ) {
+        if ( ! class_exists( 'VSBBM_Seat_Reservations' ) ) {
+            return;
+        }
+
+        foreach ( $order->get_items() as $item ) {
+            $reservation_keys = $item->get_meta( '_vsbbm_reservation_keys' );
+
+            if ( empty( $reservation_keys ) || ! is_array( $reservation_keys ) ) {
+                continue;
+            }
+
+            // اتصال مستقیم بر اساس کلیدهای رزرو (دقیق‌تر از حدس user_id)
+            VSBBM_Seat_Reservations::link_reservations_by_keys( $reservation_keys, $order_id );
         }
     }
 
@@ -295,5 +342,7 @@ class VSBBM_Booking_Handler {
     }
 }
 
-// Initialize the handler
-VSBBM_Booking_Handler::init();
+// NOTE: Removed trailing VSBBM_Booking_Handler::init() call (P0-1).
+// Initialization is now handled exclusively by the main plugin bootstrap
+// (vs-bus-booking-manager.php) to prevent duplicate hook registration.
+// The init() method is now idempotent as a safety guard.

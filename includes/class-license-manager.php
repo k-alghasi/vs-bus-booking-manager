@@ -78,6 +78,7 @@ class VSBBM_License_Manager {
 
     /**
      * Display Admin Notices.
+     * Only on VSBBM admin pages to avoid nagging on every admin page.
      */
     public function display_license_notices() {
         // Only show to admins
@@ -85,8 +86,14 @@ class VSBBM_License_Manager {
             return;
         }
 
-        // Don't show on license page itself to avoid clutter
         $screen = get_current_screen();
+        
+        // Only show on VSBBM admin pages (not on every admin page like product edit)
+        if ( ! $screen || strpos( $screen->id, 'vsbbm-' ) === false ) {
+            return;
+        }
+
+        // Don't show on license page itself to avoid clutter
         if ( $screen && strpos( $screen->id, 'vsbbm-license' ) !== false ) {
             return;
         }
@@ -94,7 +101,8 @@ class VSBBM_License_Manager {
         $license_data = $this->get_license_data();
 
         if ( empty( $license_data ) ) {
-            $this->render_notice( 'error', __( 'Please activate your license to use Pro features.', 'vs-bus-booking-manager' ), __( 'Activate License', 'vs-bus-booking-manager' ) );
+            // Use 'info' instead of 'error' during development (blue, not red)
+            $this->render_notice( 'info', __( 'Pro features available — activate your license to enable SMS, Scanner, and REST API.', 'vs-bus-booking-manager' ), __( 'Activate License', 'vs-bus-booking-manager' ) );
         } elseif ( $this->is_license_expired( $license_data ) ) {
             $this->render_notice( 'error', __( 'Your license has expired. Please renew it.', 'vs-bus-booking-manager' ), __( 'Renew License', 'vs-bus-booking-manager' ) );
         } elseif ( ! $license_data['active'] ) {
