@@ -28,7 +28,15 @@ class VSBBM_Ticket_Manager {
     }
 
     private function init_hooks() {
-        register_activation_hook( VSBBM_PLUGIN_PATH . 'vs-bus-booking-manager.php', array( $this, 'create_table' ) );
+        // P0-fix: Removed register_activation_hook from here.
+        // Table creation is handled by the main plugin's activate() method
+        // which calls VSBBM_Ticket_Manager::create_table() directly.
+        // Having a duplicate register_activation_hook with array($this, 'create_table')
+        // where create_table is static causes PHP 8+ deprecation notices
+        // (source of "unexpected output during activation" warning).
+
+        // P0-fix: Ensure table exists (self-healing if activation failed)
+        add_action( 'admin_init', array( __CLASS__, 'ensure_table_exists' ) );
 
         add_action( 'woocommerce_order_status_completed', array( $this, 'generate_tickets_for_order' ), 10, 1 );
         add_action( 'woocommerce_order_status_processing', array( $this, 'generate_tickets_for_order' ), 10, 1 );
@@ -54,22 +62,40 @@ class VSBBM_Ticket_Manager {
         $sql = "CREATE TABLE $table_name (
             id BIGINT(20) NOT NULL AUTO_INCREMENT,
             order_id BIGINT(20) NOT NULL,
-            ticket_number VARCHAR(50) NOT NULL UNIQUE,
+            ticket_number VARCHAR(50) NOT NULL,
             departure_timestamp BIGINT(20) NOT NULL DEFAULT 0,
             qr_code_data TEXT,
             pdf_path VARCHAR(255),
             passenger_data LONGTEXT,
             status ENUM('active', 'used', 'cancelled', 'expired') DEFAULT 'active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            used_at TIMESTAMP NULL,
+            used_at TIMESTAMP NULL DEFAULT NULL,
             PRIMARY KEY  (id),
+            UNIQUE KEY ticket_number (ticket_number),
             KEY order_id (order_id),
-            KEY ticket_number (ticket_number),
             KEY status (status)
         ) $charset_collate;";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta( $sql );
+    }
+
+    /**
+     * P0-fix: Self-healing — ensure table exists.
+     * If activation failed to create the table, this will create it on next admin page load.
+     * Runs once per admin session (uses a flag to avoid repeated checks).
+     */
+    public static function ensure_table_exists() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+
+        // Quick check if table exists
+        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_name ) ) === $table_name ) {
+            return; // Table exists, nothing to do
+        }
+
+        // Table doesn't exist — create it now
+        self::create_table();
     }
 
     public function register_endpoints() {

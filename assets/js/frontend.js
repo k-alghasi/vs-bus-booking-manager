@@ -189,13 +189,26 @@
             } else {
                 $.ajax({
                     url: this.settings.ajax_url,
-                    data: { action: 'vsbbm_get_passenger_fields' },
+                    type: 'POST',
+                    data: {
+                        action: 'vsbbm_get_passenger_fields',
+                        nonce: this.settings.nonce
+                    },
                     success: (response) => {
                         if (response.success) {
                             this.state.formFieldsCache = response.data; // کش کردن
                             this.$passengerFields.find('.loading-text').remove();
                             this.renderPassengerFormHTML(seatNum, response.data);
+                        } else {
+                            this.$passengerFields.find('.loading-text')
+                                .text('خطا در بارگذاری فرم. لطفاً صفحه را بازخوانی کنید.')
+                                .css('color', 'red');
                         }
+                    },
+                    error: () => {
+                        this.$passengerFields.find('.loading-text')
+                            .text('خطا در ارتباط با سرور. لطفاً صفحه را بازخوانی کنید.')
+                            .css('color', 'red');
                     }
                 });
             }

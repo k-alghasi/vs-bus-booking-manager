@@ -50,8 +50,11 @@ class VSBBM_Seat_Reservations {
      * Initialize hooks.
      */
     private function init_hooks() {
-        // Create DB table on activation
-        register_activation_hook( VSBBM_PLUGIN_PATH . 'vs-bus-booking-manager.php', array( $this, 'create_table' ) );
+        // P0-fix: Removed register_activation_hook from here.
+        // Table creation is handled by the main plugin's activate() method
+        // which calls VSBBM_Seat_Reservations::create_table() directly.
+        // Having a duplicate register_activation_hook with array($this, 'create_table')
+        // where create_table is static causes PHP 8+ deprecation notices.
 
         // Cron job for cleanup
         add_action( 'vsbbm_cleanup_expired_reservations', array( $this, 'cleanup_expired_reservations' ) );
@@ -63,6 +66,9 @@ class VSBBM_Seat_Reservations {
 
         // Handle order status changes
         add_action( 'woocommerce_order_status_changed', array( $this, 'handle_order_status_change' ), 10, 4 );
+
+        // P0-fix: Ensure table exists (self-healing if activation failed)
+        add_action( 'admin_init', array( __CLASS__, 'ensure_table_exists' ) );
     }
 
     /**
@@ -106,6 +112,21 @@ class VSBBM_Seat_Reservations {
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta( $sql );
+    }
+
+    /**
+     * P0-fix: Self-healing — ensure table exists.
+     * If activation failed to create the table, this will create it on next admin page load.
+     */
+    public static function ensure_table_exists() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+
+        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_name ) ) === $table_name ) {
+            return;
+        }
+
+        self::create_table();
     }
 
     /**
@@ -241,6 +262,10 @@ class VSBBM_Seat_Reservations {
     /**
      * Update Order ID for existing reservations (used after checkout).
      *
+     * Note (P0-3): این متد بر اساس user_id کار می‌کند که در مسیر سایت قابل اعتماد نیست.
+     * برای مسیر سایت، از link_reservations_by_keys() استفاده کنید.
+     * این متد فعلاً برای سازگاری با REST API نگه داشته شده.
+     *
      * @param int   $order_id   Order ID.
      * @param array $passengers Passenger data from order meta.
      */
@@ -282,6 +307,59 @@ class VSBBM_Seat_Reservations {
             
             self::clear_reservation_cache( $product_id, $timestamp );
         }
+    }
+
+    /**
+     * P0-3: Link reservations to order by their IDs (precise, no user_id guessing).
+     *
+     * این متد رزروها را بر اساس کلیدهای (ID) ذخیره‌شده در order item meta
+     * به سفارش وصل می‌کند. این روش دقیق‌تر از update_reservation_order_id
+     * است چون از user_id استفاده نمی‌کند.
+     *
+     * @param array $reservation_ids Array of reservation IDs.
+     * @param int   $order_id        Order ID.
+     * @return int Number of reservations updated.
+     */
+    public static function link_reservations_by_keys( $reservation_ids, $order_id ) {
+        if ( empty( $reservation_ids ) || ! is_array( $reservation_ids ) ) {
+            return 0;
+        }
+
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+
+        // ابتدا product_id و departure_timestamp را برای پاکسازی کش استخراج می‌کنیم
+        $ids_placeholder = implode( ',', array_fill( 0, count( $reservation_ids ), '%d' ) );
+
+        $reservations = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, product_id, departure_timestamp FROM $table_name WHERE id IN ($ids_placeholder)",
+            $reservation_ids
+        ) );
+
+        if ( empty( $reservations ) ) {
+            return 0;
+        }
+
+        // اتصال رزروها به سفارش
+        $updated = $wpdb->query( $wpdb->prepare(
+            "UPDATE $table_name 
+             SET order_id = %d 
+             WHERE id IN ($ids_placeholder) 
+             AND status = 'reserved'",
+            array_merge( array( $order_id ), $reservation_ids )
+        ) );
+
+        // پاکسازی کش برای هر product/timestamp ترکیب
+        $cache_cleared = array();
+        foreach ( $reservations as $res ) {
+            $cache_key = $res->product_id . '_' . $res->departure_timestamp;
+            if ( ! isset( $cache_cleared[ $cache_key ] ) ) {
+                self::clear_reservation_cache( $res->product_id, $res->departure_timestamp );
+                $cache_cleared[ $cache_key ] = true;
+            }
+        }
+
+        return (int) $updated;
     }
 
     /**
