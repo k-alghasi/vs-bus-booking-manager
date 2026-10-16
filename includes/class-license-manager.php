@@ -176,10 +176,48 @@ class VSBBM_License_Manager {
 
     /**
      * Activate License Logic.
+     *
+     * P2-4: حالت توسعه (dev mode) برای تست بدون سرور لایسنس.
+     * برای فعال‌سازی dev mode، ثابت VSBBM_LICENSE_DEV_MODE را در wp-config.php تعریف کنید:
+     *   define( 'VSBBM_LICENSE_DEV_MODE', true );
+     *
+     * در dev mode، هر لایسنس‌کی با فرمت صحیح قبول می‌شود.
+     *
+     * @param string $license_key License key.
+     * @param string $email       Customer email.
+     * @return array|WP_Error
      */
     public function activate_license( $license_key, $email ) {
         $site_url = get_site_url();
 
+        // P2-4: حالت توسعه — بدون سرور لایسنس
+        if ( defined( 'VSBBM_LICENSE_DEV_MODE' ) && VSBBM_LICENSE_DEV_MODE ) {
+            // در dev mode، لایسنس‌کی باید حداقل ۱۰ کاراکتر باشد
+            if ( strlen( $license_key ) < 10 ) {
+                return new WP_Error( 'invalid_key', __( 'License key must be at least 10 characters. (Dev Mode)', 'vs-bus-booking-manager' ) );
+            }
+
+            $license_data = array(
+                'license_key'  => $license_key,
+                'email'        => $email,
+                'active'       => true,
+                'expires_at'   => null, // بدون انقضا در dev mode
+                'activated_at' => current_time( 'mysql' ),
+                'site_url'     => $site_url,
+                'details'      => array(
+                    'success'    => true,
+                    'message'    => 'Dev mode activation',
+                    'dev_mode'   => true,
+                ),
+            );
+
+            update_option( $this->option_key, $license_data );
+            update_option( 'vsbbm_license_last_check', time() );
+
+            return $license_data;
+        }
+
+        // حالت تولید — اتصال به سرور لایسنس
         $response = wp_remote_post( $this->license_server . '/activate', array(
             'timeout' => 15,
             'body'    => array(

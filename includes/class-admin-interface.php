@@ -390,7 +390,185 @@ class VSBBM_Admin_Interface {
     public function render_email_settings_page() { echo '<div class="wrap"><h1>Email Settings</h1></div>'; }
     public function render_sms_settings_page() { echo '<div class="wrap"><h1>SMS Settings</h1></div>'; }
     public function render_api_settings_page() { echo '<div class="wrap"><h1>API Settings</h1></div>'; }
-    public function render_license_page() { echo '<div class="wrap"><h1>License</h1></div>'; }
+    /**
+     * Render License Page.
+     *
+     * P2-4: صفحه فعال‌سازی لایسنس Pro.
+     */
+    public function render_license_page() {
+        $license_manager = VSBBM_License_Manager::get_instance();
+        $license_info    = $license_manager->get_license_info();
+        $is_active       = $license_manager->is_license_active();
+        ?>
+        <div class="wrap">
+            <h1><?php esc_html_e( 'License Management', 'vs-bus-booking-manager' ); ?></h1>
+
+            <div class="notice notice-info">
+                <p>
+                    <strong><?php esc_html_e( 'VS Bus Booking Manager Pro', 'vs-bus-booking-manager' ); ?></strong>
+                    <?php esc_html_e( 'برای فعال‌سازی قابلیت‌های پیشرفته (SMS، اسکنر بلیط، REST API، PDF با لوگو)، لایسنس نسخه Pro را وارد کنید.', 'vs-bus-booking-manager' ); ?>
+                </p>
+            </div>
+
+            <div class="card" style="max-width: 600px; padding: 20px; margin-top: 20px;">
+                <?php if ( $is_active ) : ?>
+                    <!-- وضعیت فعال -->
+                    <h2 style="color: #46b450;">✓ <?php esc_html_e( 'License Active', 'vs-bus-booking-manager' ); ?></h2>
+                    <table class="form-table">
+                        <tr>
+                            <th><?php esc_html_e( 'Status', 'vs-bus-booking-manager' ); ?></th>
+                            <td><span style="color: #46b450; font-weight: bold;"><?php esc_html_e( 'Active', 'vs-bus-booking-manager' ); ?></span></td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'License Key', 'vs-bus-booking-manager' ); ?></th>
+                            <td><code><?php echo esc_html( $license_info['license_key'] ); ?></code></td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Email', 'vs-bus-booking-manager' ); ?></th>
+                            <td><?php echo esc_html( $license_info['email'] ); ?></td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Expires At', 'vs-bus-booking-manager' ); ?></th>
+                            <td><?php echo esc_html( $license_info['expires_at'] ); ?></td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Activated At', 'vs-bus-booking-manager' ); ?></th>
+                            <td><?php echo esc_html( $license_info['activated_at'] ); ?></td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Site URL', 'vs-bus-booking-manager' ); ?></th>
+                            <td><?php echo esc_html( $license_info['site_url'] ); ?></td>
+                        </tr>
+                    </table>
+                    <p>
+                        <button type="button" class="button button-secondary" id="vsbbm-deactivate-license">
+                            <?php esc_html_e( 'Deactivate License', 'vs-bus-booking-manager' ); ?>
+                        </button>
+                    </p>
+
+                <?php else : ?>
+                    <!-- وضعیت غیرفعال -->
+                    <h2><?php esc_html_e( 'Activate License', 'vs-bus-booking-manager' ); ?></h2>
+                    <form id="vsbbm-license-form">
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row">
+                                    <label for="license_key"><?php esc_html_e( 'License Key', 'vs-bus-booking-manager' ); ?> <span style="color:red;">*</span></label>
+                                </th>
+                                <td>
+                                    <input type="text" id="license_key" name="license_key" class="regular-text" required placeholder="VSBBM-XXXX-XXXX-XXXX">
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="email"><?php esc_html_e( 'Email', 'vs-bus-booking-manager' ); ?> <span style="color:red;">*</span></label>
+                                </th>
+                                <td>
+                                    <input type="email" id="email" name="email" class="regular-text" required placeholder="you@example.com">
+                                </td>
+                            </tr>
+                        </table>
+                        <p class="submit">
+                            <button type="submit" class="button button-primary" id="vsbbm-activate-license">
+                                <?php esc_html_e( 'Activate License', 'vs-bus-booking-manager' ); ?>
+                            </button>
+                            <span class="spinner" id="vsbbm-license-spinner" style="float: none; margin: 0 10px;"></span>
+                        </p>
+                    </form>
+                <?php endif; ?>
+
+                <!-- نتیجه AJAX -->
+                <div id="vsbbm-license-result" style="margin-top: 20px;"></div>
+            </div>
+
+            <!-- اطلاعات خرید -->
+            <div class="card" style="max-width: 600px; padding: 20px; margin-top: 20px; background: #f9f9f9;">
+                <h3><?php esc_html_e( 'Get Pro Features', 'vs-bus-booking-manager' ); ?></h3>
+                <p><?php esc_html_e( 'برای خرید لایسنس نسخه Pro به سایت ما مراجعه کنید:', 'vs-bus-booking-manager' ); ?></p>
+                <p>
+                    <a href="https://vernasoft.ir" target="_blank" class="button button-primary">
+                        <?php esc_html_e( 'Buy Pro License', 'vs-bus-booking-manager' ); ?>
+                    </a>
+                </p>
+            </div>
+
+            <script>
+            jQuery(document).ready(function($) {
+                // فعال‌سازی لایسنس
+                $('#vsbbm-license-form').on('submit', function(e) {
+                    e.preventDefault();
+                    var $btn = $('#vsbbm-activate-license');
+                    var $spinner = $('#vsbbm-license-spinner');
+                    var $result = $('#vsbbm-license-result');
+
+                    $btn.prop('disabled', true);
+                    $spinner.addClass('is-active');
+                    $result.html('');
+
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'vsbbm_activate_license',
+                            nonce: '<?php echo wp_create_nonce( 'vsbbm_license_activation' ); ?>',
+                            license_key: $('#license_key').val(),
+                            email: $('#email').val()
+                        },
+                        success: function(response) {
+                            $spinner.removeClass('is-active');
+                            $btn.prop('disabled', false);
+
+                            if (response.success) {
+                                $result.html('<div class="notice notice-success"><p>' + response.data.message + '</p></div>');
+                                setTimeout(function() { window.location.reload(); }, 2000);
+                            } else {
+                                $result.html('<div class="notice notice-error"><p>' + response.data + '</p></div>');
+                            }
+                        },
+                        error: function() {
+                            $spinner.removeClass('is-active');
+                            $btn.prop('disabled', false);
+                            $result.html('<div class="notice notice-error"><p>خطا در ارتباط با سرور</p></div>');
+                        }
+                    });
+                });
+
+                // غیرفعال‌سازی لایسنس
+                $('#vsbbm-deactivate-license').on('click', function() {
+                    if (!confirm('<?php esc_html_e( 'Are you sure you want to deactivate the license?', 'vs-bus-booking-manager' ); ?>')) return;
+
+                    var $btn = $(this);
+                    var $result = $('#vsbbm-license-result');
+
+                    $btn.prop('disabled', true);
+
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'vsbbm_deactivate_license',
+                            nonce: '<?php echo wp_create_nonce( 'vsbbm_license_deactivation' ); ?>',
+                        },
+                        success: function(response) {
+                            $btn.prop('disabled', false);
+                            if (response.success) {
+                                $result.html('<div class="notice notice-success"><p>' + response.data + '</p></div>');
+                                setTimeout(function() { window.location.reload(); }, 2000);
+                            } else {
+                                $result.html('<div class="notice notice-error"><p>' + response.data + '</p></div>');
+                            }
+                        },
+                        error: function() {
+                            $btn.prop('disabled', false);
+                            $result.html('<div class="notice notice-error"><p>خطا در ارتباط با سرور</p></div>');
+                        }
+                    });
+                });
+            });
+            </script>
+        </div>
+        <?php
+    }
     public function render_cache_page() { echo '<div class="wrap"><h1>Cache</h1></div>'; }
 
     // --- Passenger Fields Settings ---
