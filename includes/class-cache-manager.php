@@ -250,7 +250,7 @@ class VSBBM_Cache_Manager {
             }
 
             $reservations = $wpdb->get_results( $wpdb->prepare(
-                "SELECT seat_number FROM $table_name WHERE product_id = %d AND status = 'active'",
+                "SELECT seat_number FROM $table_name WHERE product_id = %d AND status IN ('reserved', 'confirmed')",
                 $product_id
             ) );
 

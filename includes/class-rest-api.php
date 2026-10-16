@@ -103,11 +103,15 @@ class VSBBM_REST_API {
             'permission_callback' => array( $this, 'check_authentication' ),
         ) );
 
+        // P0-2: Route disabled — callback 'get_booking_details' was not implemented.
+        // Will be re-enabled in Phase 2 when REST API moves to Pro addon.
+        /*
         register_rest_route( $this->namespace, '/user/bookings/(?P<id>\d+)', array(
             'methods'             => 'GET',
             'callback'            => array( $this, 'get_booking_details' ),
             'permission_callback' => array( $this, 'check_authentication' ),
         ) );
+        */
 
         // Tickets (Validation)
         register_rest_route( $this->namespace, '/tickets/(?P<code>[a-zA-Z0-9-]+)', array(
@@ -116,12 +120,19 @@ class VSBBM_REST_API {
             'permission_callback' => '__return_true', // For QR Scanners
         ) );
 
+        // P0-2: Route disabled — callback 'use_ticket' was not implemented.
+        // Will be re-enabled in Phase 2 when REST API moves to Pro addon.
+        /*
         register_rest_route( $this->namespace, '/tickets/(?P<code>[a-zA-Z0-9-]+)/use', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'use_ticket' ),
             'permission_callback' => array( $this, 'check_authentication' ), // Only authorized staff
         ) );
+        */
 
+        // P0-2: Routes disabled — callbacks 'get_user_profile' and 'update_user_profile'
+        // were not implemented. Will be re-enabled in Phase 2 when REST API moves to Pro addon.
+        /*
         // Profile
         register_rest_route( $this->namespace, '/user/profile', array(
             'methods'             => 'GET',
@@ -134,6 +145,7 @@ class VSBBM_REST_API {
             'callback'            => array( $this, 'update_user_profile' ),
             'permission_callback' => array( $this, 'check_authentication' ),
         ) );
+        */
     }
 
     /**

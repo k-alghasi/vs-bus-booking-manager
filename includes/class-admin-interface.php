@@ -159,15 +159,21 @@ class VSBBM_Admin_Interface {
         $total_tickets = $wpdb->get_var( "SELECT COUNT(*) FROM $tickets_table" );
 
         // 2. درآمد کل (از سفارشات ووکامرس مربوط به بلیط‌ها)
-        // یک کوئری تقریبی اما سریع
+        // P0-8: فیلتر EXISTS حالا چک می‌کنه که سفارش حداقل یک آیتم با
+        // متای _vsbbm_passengers داشته باشه (یعنی سفارش اتوبوسی هست).
         $total_revenue = $wpdb->get_var( "
             SELECT SUM(pm.meta_value) 
             FROM {$wpdb->postmeta} pm
             JOIN {$wpdb->posts} p ON p.ID = pm.post_id
             WHERE p.post_type = 'shop_order' 
-            AND p.post_status IN ('wc-completed', 'wc-processing')
+            AND p.post_status IN ('wc-completed', 'wc-processing', 'wc-on-hold')
             AND pm.meta_key = '_order_total'
-            AND EXISTS (SELECT 1 FROM {$wpdb->prefix}woocommerce_order_items oi WHERE oi.order_id = p.ID)
+            AND EXISTS (
+                SELECT 1 FROM {$wpdb->prefix}woocommerce_order_items oi
+                JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oim.order_item_id = oi.order_item_id
+                WHERE oi.order_id = p.ID
+                AND oim.meta_key = '_vsbbm_passengers'
+            )
         " );
 
         // 3. تعداد سفرهای فعال (محصولات اتوبوسی)
@@ -208,14 +214,21 @@ class VSBBM_Admin_Interface {
             $labels[] = date_i18n( 'l', strtotime( $date ) ); // نام روز هفته (شنبه، ...)
             
             // جمع مبلغ سفارشات تکمیل شده در آن روز
+            // P0-8: فیلتر EXISTS برای سفارشات اتوبوسی فقط
             $daily_sales = $wpdb->get_var( $wpdb->prepare( "
                 SELECT SUM(pm.meta_value) 
                 FROM {$wpdb->postmeta} pm
                 JOIN {$wpdb->posts} p ON p.ID = pm.post_id
                 WHERE p.post_type = 'shop_order' 
-                AND p.post_status IN ('wc-completed', 'wc-processing')
+                AND p.post_status IN ('wc-completed', 'wc-processing', 'wc-on-hold')
                 AND pm.meta_key = '_order_total'
                 AND DATE(p.post_date) = %s
+                AND EXISTS (
+                    SELECT 1 FROM {$wpdb->prefix}woocommerce_order_items oi
+                    JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oim.order_item_id = oi.order_item_id
+                    WHERE oi.order_id = p.ID
+                    AND oim.meta_key = '_vsbbm_passengers'
+                )
             ", $date ) );
             
             $sales_data[] = $daily_sales ? $daily_sales : 0;
@@ -323,8 +336,118 @@ class VSBBM_Admin_Interface {
         </div>
         <?php
     }
-    public function render_bookings_page() { if ( file_exists( VSBBM_PLUGIN_PATH . 'templates/admin/bookings.php' ) ) include VSBBM_PLUGIN_PATH . 'templates/admin/bookings.php'; }
-    public function render_reservations_page() { if ( file_exists( VSBBM_PLUGIN_PATH . 'templates/admin/reservations.php' ) ) include VSBBM_PLUGIN_PATH . 'templates/admin/reservations.php'; }
+    // P0-7: صفحات All Bookings و Reservations قبلاً خالی بودن چون
+    // قالب‌های bookings.php و reservations.php وجود نداشتن.
+    // فعلاً یک صفحه placeholder مفید نشون می‌دیم. در فاز ۱ کامل ساخته می‌شه.
+
+    /**
+     * Render Bookings page.
+     * P0-7: نمایش پیام placeholder به‌جای صفحه خالی.
+     */
+    public function render_bookings_page() {
+        // اگه قالب وجود داشت (برای آینده)، ازش استفاده کن
+        if ( file_exists( VSBBM_PLUGIN_PATH . 'templates/admin/bookings.php' ) ) {
+            include VSBBM_PLUGIN_PATH . 'templates/admin/bookings.php';
+            return;
+        }
+
+        // وگرنه یک صفحه placeholder مفید نشون بده
+        $orders_link = admin_url( 'edit.php?post_type=shop_order' );
+        ?>
+        <div class="wrap">
+            <h1><?php esc_html_e( 'All Bookings', 'vs-bus-booking-manager' ); ?></h1>
+            <div class="notice notice-info">
+                <p>
+                    <strong><?php esc_html_e( 'This page is under construction.', 'vs-bus-booking-manager' ); ?></strong>
+                </p>
+                <p><?php esc_html_e( 'In the meantime, you can view all bookings (orders) in WooCommerce:', 'vs-bus-booking-manager' ); ?></p>
+                <p>
+                    <a href="<?php echo esc_url( $orders_link ); ?>" class="button button-primary">
+                        <?php esc_html_e( 'View WooCommerce Orders', 'vs-bus-booking-manager' ); ?>
+                    </a>
+                </p>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render Reservations page.
+     * P0-7: نمایش رزروهای موقت از دیتابیس به‌جای صفحه خالی.
+     */
+    public function render_reservations_page() {
+        // اگه قالب وجود داشت (برای آینده)، ازش استفاده کن
+        if ( file_exists( VSBBM_PLUGIN_PATH . 'templates/admin/reservations.php' ) ) {
+            include VSBBM_PLUGIN_PATH . 'templates/admin/reservations.php';
+            return;
+        }
+
+        // وگرنه رزروهای موقت رو از دیتابیس نشون بده
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'vsbbm_seat_reservations';
+
+        // بررسی وجود جدول
+        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_name ) ) !== $table_name ) {
+            echo '<div class="wrap"><h1>' . esc_html__( 'Seat Reservations', 'vs-bus-booking-manager' ) . '</h1>';
+            echo '<div class="notice notice-error"><p>' . esc_html__( 'Reservations table does not exist. Please deactivate and reactivate the plugin.', 'vs-bus-booking-manager' ) . '</p></div></div>';
+            return;
+        }
+
+        // آخرین ۵۰ رزرو
+        $reservations = $wpdb->get_results( "SELECT * FROM $table_name ORDER BY id DESC LIMIT 50" );
+        ?>
+        <div class="wrap">
+            <h1><?php esc_html_e( 'Seat Reservations', 'vs-bus-booking-manager' ); ?></h1>
+            <p class="description"><?php esc_html_e( 'Showing latest 50 reservations. Full management UI coming in Phase 1.', 'vs-bus-booking-manager' ); ?></p>
+
+            <table class="wp-list-table widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e( 'ID', 'vs-bus-booking-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Product', 'vs-bus-booking-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Seat', 'vs-bus-booking-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Departure', 'vs-bus-booking-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Order', 'vs-bus-booking-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Status', 'vs-bus-booking-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Reserved At', 'vs-bus-booking-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Expires At', 'vs-bus-booking-manager' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if ( empty( $reservations ) ) : ?>
+                        <tr>
+                            <td colspan="8" style="text-align: center; padding: 20px;">
+                                <?php esc_html_e( 'No reservations found.', 'vs-bus-booking-manager' ); ?>
+                            </td>
+                        </tr>
+                    <?php else : ?>
+                        <?php foreach ( $reservations as $res ) :
+                            $product = get_the_title( $res->product_id );
+                            $departure = $res->departure_timestamp ? wp_date( 'Y/m/d H:i', $res->departure_timestamp ) : '-';
+                            $order_link = $res->order_id ? '<a href="' . esc_url( admin_url( 'post.php?post=' . $res->order_id . '&action=edit' ) ) . '">#' . esc_html( $res->order_id ) . '</a>' : '<em>—</em>';
+                            $status_class = '';
+                            if ( $res->status === 'confirmed' ) $status_class = 'style="color: green; font-weight: bold;"';
+                            elseif ( $res->status === 'cancelled' ) $status_class = 'style="color: red;"';
+                            elseif ( $res->status === 'expired' ) $status_class = 'style="color: orange;"';
+                        ?>
+                            <tr>
+                                <td><?php echo esc_html( $res->id ); ?></td>
+                                <td><?php echo esc_html( $product ? $product : '—' ); ?></td>
+                                <td><strong><?php echo esc_html( $res->seat_number ); ?></strong></td>
+                                <td><?php echo esc_html( $departure ); ?></td>
+                                <td><?php echo $order_link; // phpcs:ignore — HTML link ?></td>
+                                <td <?php echo $status_class; // phpcs:ignore — inline style ?>><?php echo esc_html( $res->status ); ?></td>
+                                <td><?php echo esc_html( $res->reserved_at ); ?></td>
+                                <td><?php echo $res->expires_at ? esc_html( $res->expires_at ) : '—'; ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php
+    }
+
     public function render_blacklist_page() { if ( class_exists( 'VSBBM_Blacklist' ) ) VSBBM_Blacklist::render_admin_page(); }
     
     // Settings Pages (Simple Placeholders for now)
