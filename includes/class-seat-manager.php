@@ -298,36 +298,37 @@ class VSBBM_Seat_Manager {
        AJAX HANDLERS
        ========================================================================== */
 
+    /**
+     * AJAX: Get passenger fields configuration.
+     *
+     * P0-1.3: Uses VSBBM_Settings instead of direct get_option calls.
+     */
     public function get_passenger_fields_ajax() {
         check_ajax_referer( 'vsbbm_seat_nonce', 'nonce' );
 
-        $saved_fields = get_option('vsbbm_passenger_fields');
-        if ( empty($saved_fields) ) {
-            $saved_fields = [
-                ['type'=>'text', 'label'=>__('Full Name', 'vs-bus-booking-manager'), 'required'=>true],
-                ['type'=>'text', 'label'=>__('National ID', 'vs-bus-booking-manager'), 'required'=>true],
-                ['type'=>'tel', 'label'=>__('Phone', 'vs-bus-booking-manager'), 'required'=>false]
-            ];
-        }
+        // P0-1.3: Use Settings service (with in-memory cache + defaults)
+        $settings         = VSBBM_Settings::get_instance();
+        $saved_fields     = $settings->get_passenger_fields();
+        $blacklist_target = $settings->get_blacklist_target_field();
 
-        $frontend_fields = [];
-        $blacklist_target = get_option('vsbbm_blacklist_target_field', 'کد ملی');
+        $frontend_fields = array();
 
-        foreach ($saved_fields as $field) {
-            $data = [
-                'type' => sanitize_text_field($field['type']),
-                'label' => sanitize_text_field($field['label']),
-                'placeholder' => sanitize_text_field($field['placeholder']??''),
-                'required' => !empty($field['required']),
-            ];
+        foreach ( $saved_fields as $field ) {
+            $data = array(
+                'type'        => sanitize_text_field( $field['type'] ?? 'text' ),
+                'label'       => sanitize_text_field( $field['label'] ?? '' ),
+                'placeholder' => sanitize_text_field( $field['placeholder'] ?? '' ),
+                'required'    => ! empty( $field['required'] ),
+            );
 
-            if ($field['type'] === 'select' && !empty($field['options'])) {
-                $data['options'] = array_map('trim', explode(',', $field['options']));
+            if ( ( $field['type'] ?? '' ) === 'select' && ! empty( $field['options'] ) ) {
+                $data['options'] = array_map( 'trim', explode( ',', $field['options'] ) );
             }
 
-            if ($field['label'] === $blacklist_target) {
+            // Mark blacklist target field with national_code validation
+            if ( ( $field['label'] ?? '' ) === $blacklist_target ) {
                 $data['validation'] = 'national_code';
-                $data['required'] = true;
+                $data['required']   = true;
             }
 
             $frontend_fields[] = $data;
@@ -353,54 +354,63 @@ class VSBBM_Seat_Manager {
         ] );
     }
 
+    /**
+     * AJAX: Add to Cart (create reservation + add to WC cart).
+     *
+     * P0-1.3: Refactored to use VSBBM_Reservation_Service as the single
+     * source of truth for booking logic. This ensures the AJAX flow and
+     * the REST API flow share the same validation, blacklist, and
+     * rollback behavior.
+     */
     public function add_to_cart_ajax() {
         check_ajax_referer( 'vsbbm_seat_nonce', 'nonce' );
 
-        $product_id = absint( $_POST['product_id'] );
+        // 1. Parse and sanitize raw input
+        $product_id = absint( $_POST['product_id'] ?? 0 );
         $timestamp  = absint( $_POST['vsbbm_departure_timestamp'] ?? 0 );
-        $seats      = json_decode( wp_unslash( $_POST['selected_seats'] ), true );
-        $passengers = json_decode( wp_unslash( $_POST['passengers_data'] ), true );
+        $seats      = json_decode( wp_unslash( $_POST['selected_seats'] ?? '[]' ), true );
+        $passengers = json_decode( wp_unslash( $_POST['passengers_data'] ?? '[]' ), true );
 
-        if ( empty( $seats ) ) wp_send_json_error( [ 'message' => __( 'No seats selected.', 'vs-bus-booking-manager' ) ] );
-
-        // Blacklist Check
-        if ( class_exists( 'VSBBM_Blacklist' ) ) {
-            $target = get_option( 'vsbbm_blacklist_target_field', 'کد ملی' );
-            foreach ( $passengers as $p ) {
-                if ( ! empty( $p[ $target ] ) && VSBBM_Blacklist::is_blacklisted( $p[ $target ] ) ) {
-                    wp_send_json_error( [ 'message' => __( 'Booking blocked by blacklist.', 'vs-bus-booking-manager' ) ] );
-                }
-            }
+        if ( empty( $seats ) || ! is_array( $seats ) ) {
+            wp_send_json_error( [ 'message' => __( 'No seats selected.', 'vs-bus-booking-manager' ) ] );
         }
 
-        // Reservation
-        $keys = [];
-        foreach ( $seats as $seat ) {
-            $seat_info = [];
-            foreach($passengers as $p) { if(isset($p['seat_number']) && $p['seat_number'] == $seat) $seat_info = $p; }
-
-            $res_id = VSBBM_Seat_Reservations::reserve_seat( $product_id, $seat, $timestamp, null, null, $seat_info );
-
-            if ( is_wp_error( $res_id ) ) {
-                VSBBM_Seat_Reservations::cancel_reservations_by_keys( $keys );
-                wp_send_json_error( [ 'message' => $res_id->get_error_message() ] );
-            }
-            $keys[] = $res_id;
+        if ( empty( $passengers ) || ! is_array( $passengers ) ) {
+            wp_send_json_error( [ 'message' => __( 'No passenger data provided.', 'vs-bus-booking-manager' ) ] );
         }
 
-        // WC Cart
-        $data = [
-            'vsbbm_reservation_keys' => $keys,
-            'vsbbm_departure_timestamp' => $timestamp,
-            'vsbbm_seats' => $seats,
-            'vsbbm_passengers' => $passengers
-        ];
+        // 2. Delegate to Reservation_Service (single source of truth)
+        $service = VSBBM_Reservation_Service::get_instance();
+        $result  = $service->create_booking( array(
+            'product_id'          => $product_id,
+            'departure_timestamp' => $timestamp,
+            'seats'               => $seats,
+            'passengers'          => $passengers,
+            'source'              => 'ajax',
+        ) );
 
-        if ( WC()->cart->add_to_cart( $product_id, count( $seats ), 0, [], $data ) ) {
+        // 3. Handle service errors
+        if ( is_wp_error( $result ) ) {
+            wp_send_json_error( array(
+                'message'  => $result->get_error_message(),
+                'code'     => $result->get_error_code(),
+            ) );
+        }
+
+        // 4. Add to WooCommerce cart (reservation already created by service)
+        $cart_data = array(
+            'vsbbm_reservation_keys'    => $result['reservation_keys'],
+            'vsbbm_departure_timestamp' => $result['departure_timestamp'],
+            'vsbbm_seats'               => $result['seats'],
+            'vsbbm_passengers'          => $result['passengers'],
+        );
+
+        if ( WC()->cart->add_to_cart( $result['product_id'], count( $result['seats'] ), 0, array(), $cart_data ) ) {
             wp_send_json_success( [ 'checkout_url' => wc_get_checkout_url() ] );
         } else {
-            VSBBM_Seat_Reservations::cancel_reservations_by_keys( $keys );
-            wp_send_json_error( [ 'message' => 'Cart Error' ] );
+            // Cart failed — rollback the reservations created by service
+            $service->cancel_booking( $result['reservation_keys'] );
+            wp_send_json_error( [ 'message' => __( 'Could not add booking to cart. Please try again.', 'vs-bus-booking-manager' ) ] );
         }
     }
 
