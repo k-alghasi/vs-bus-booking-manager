@@ -85,6 +85,9 @@ class VS_Bus_Booking_Manager {
      *   5. Controllers (از Services و Models استفاده می‌کنند)
      *   6. Admin & API (از Controllers استفاده می‌کنند)
      *   7. Integrations (شرطی — فقط اگر افزونه‌های دیگر فعال باشند)
+     *
+     * P2-4: فایل‌های Pro (SMS, REST API) به‌صورت conditional لود می‌شوند.
+     * این فایل‌ها ممکن است در Free وجود نداشته باشند (چون به Pro منتقل شده‌اند).
      */
     private function load_dependencies() {
         // 1. Composer Autoloader (برای PDF و QR Code)
@@ -108,12 +111,26 @@ class VS_Bus_Booking_Manager {
         require_once VSBBM_PLUGIN_PATH . 'includes/class-seat-manager.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-booking-handler.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-email-notifications.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-sms-notifications.php';
         require_once VSBBM_PLUGIN_PATH . 'includes/class-license-manager.php';
 
-        // 6. Admin & API
+        // 6. Admin Interface (همیشه لود می‌شود — با gating داخلی برای منوهای Pro)
         require_once VSBBM_PLUGIN_PATH . 'includes/class-admin-interface.php';
-        require_once VSBBM_PLUGIN_PATH . 'includes/class-rest-api.php';
+
+        // P2-4: Pro features — فقط اگر فایل وجود داشته باشد و لایسنس فعال باشد
+        // این فایل‌ها در نسخه انتشار به افزونه Pro منتقل می‌شوند.
+        // فعلاً برای توسعه، اگر در Free وجود داشته باشند و لایسنس فعال باشد، لود می‌شوند.
+        if ( VSBBM_Settings::get_instance()->is_pro_active() ) {
+            $pro_files = array(
+                'includes/class-sms-notifications.php',
+                'includes/class-rest-api.php',
+            );
+            foreach ( $pro_files as $pro_file ) {
+                $full_path = VSBBM_PLUGIN_PATH . $pro_file;
+                if ( file_exists( $full_path ) ) {
+                    require_once $full_path;
+                }
+            }
+        }
 
         // 7. Elementor Integration (شرطی — فقط اگر المنتور فعال باشد)
         add_action( 'plugins_loaded', array( $this, 'maybe_load_elementor_integration' ) );
@@ -146,7 +163,7 @@ class VS_Bus_Booking_Manager {
      * Activation logic — create database tables.
      *
      * جداول ساخته می‌شوند و در صورت نیاز به‌روزرسانی می‌شوند (dbDelta).
-     * برای جداولی که فعال‌سازی قبلی ناموفق بوده، کلاس‌های مربوطه
+     * برای جداولی که فعال‌سازی قبلی ناموفق بوده، کلاس‌های مربوعه
      * مکانیزم self-healing روی admin_init دارند (ensure_table_exists).
      */
     public function activate() {
@@ -213,6 +230,9 @@ class VS_Bus_Booking_Manager {
 
     /**
      * Core initialization — runs on 'init' hook.
+     *
+     * P2-4: کلاس‌های Pro (SMS, REST API) فقط در صورت وجود و فعال بودن
+     * لایسنس راه‌اندازی می‌شوند.
      */
     public function init() {
         // بارگذاری ترجمه‌ها
@@ -222,25 +242,27 @@ class VS_Bus_Booking_Manager {
             dirname( VSBBM_PLUGIN_BASENAME ) . '/languages'
         );
 
-        // راه‌اندازی کلاس‌های اصلی
-        // نکته: کلاس‌های Model (Reservations, Tickets, Blacklist) به‌صورت
-        // Singleton هستند و در زمان require_once خودشان را مقداردهی می‌کنند.
-
-        // راه‌اندازی Seat Manager (Singleton)
+        // راه‌اندازی کلاس‌های اصلی (Free — همیشه)
         VSBBM_Seat_Manager::get_instance();
-
-        // راه‌اندازی Controllers
         VSBBM_Booking_Handler::init();
         VSBBM_Admin_Interface::init();
-        VSBBM_REST_API::init();
-
-        // راه‌اندازی Notifications
         VSBBM_Email_Notifications::get_instance();
-        VSBBM_SMS_Notifications::get_instance();
 
-        // راه‌اندازی License Manager (Pro features)
+        // راه‌اندازی License Manager (همیشه — مدیریت لایسنس Pro)
         if ( class_exists( 'VSBBM_License_Manager' ) ) {
             VSBBM_License_Manager::get_instance();
+        }
+
+        // P2-4: Pro features — فقط اگر لایسنس فعال باشد و کلاس‌ها موجود باشند
+        if ( VSBBM_Settings::get_instance()->is_pro_active() ) {
+            // SMS Notifications (Pro)
+            if ( class_exists( 'VSBBM_SMS_Notifications' ) ) {
+                VSBBM_SMS_Notifications::get_instance();
+            }
+            // REST API (Pro)
+            if ( class_exists( 'VSBBM_REST_API' ) ) {
+                VSBBM_REST_API::init();
+            }
         }
 
         /**

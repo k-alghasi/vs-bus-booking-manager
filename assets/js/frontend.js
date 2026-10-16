@@ -1,5 +1,8 @@
 /**
  * VSBBM Frontend Script - Enhanced
+ *
+ * P-layout-fix: چیدمان واقعی اتوبوس با راهروی وسط + حفظ position صندلی‌ها
+ *
  * @version 2.1.0
  */
 (function($) {
@@ -122,9 +125,6 @@
             const allSeats = data.all_seats || {};
             this.state.seatData = allSeats;
 
-            const cols = parseInt(this.$container.data('cols'));
-            let html = '<div class="vsbbm-grid-wrapper" style="display: grid; grid-template-columns: repeat(' + (cols * 2 + 1) + ', 1fr); gap: 10px;">';
-
             const seatNumbers = Object.keys(allSeats).sort((a, b) => parseInt(a) - parseInt(b));
 
             if (seatNumbers.length === 0) {
@@ -132,28 +132,149 @@
                 return;
             }
 
-            seatNumbers.forEach(seatNum => {
-                const seatInfo = allSeats[seatNum];
-                const isReserved = reservedSeats.includes(seatNum) || reservedSeats.includes(parseInt(seatNum));
-                const statusClass = isReserved ? 'reserved' : 'available';
-                const seatLabel = seatInfo.label || seatNum;
-                const price = seatInfo.price || 0;
+            // P-layout-fix: چیدمان واقعی اتوبوس با راهروی وسط
+            // bus_type: '2x2' (استاندارد), '1x2' (VIP), '1x1' (لوکس)
+            const busType = this.$container.data('bus-type') || '2x2';
+            const colsPerSide = parseInt(this.$container.data('cols')) || 2;
 
-                // Tooltip info
-                const tooltip = isReserved ? 'رزرو شده' : `صندلی ${seatLabel} - قیمت: ${price > 0 ? price : 'پایه'}`;
+            // P-layout-fix: در RTL، leftCols سمت راست قرار می‌گیره.
+            // VIP (1x2): ۲ ستون سمت راست + ۱ ستون سمت چپ
+            // Luxury (1x1): ۱ ستون سمت راست + ۱ ستون سمت چپ
+            // Standard (2x2): ۲ ستون سمت راست + ۲ ستون سمت چپ
+            let leftCols, rightCols;
+            if (busType === '1x2') {
+                // VIP: دوتایی سمت راست، تکی سمت چپ
+                leftCols = 2;  // سمت راست در RTL
+                rightCols = 1; // سمت چپ در RTL
+            } else if (busType === '1x1') {
+                leftCols = 1;
+                rightCols = 1;
+            } else {
+                // 2x2 (default)
+                leftCols = colsPerSide;
+                rightCols = colsPerSide;
+            }
 
-                html += `
-                    <div class="vsbbm-seat ${statusClass}"
-                         data-seat-number="${seatNum}"
-                         title="${tooltip}">
-                        ${seatLabel}
-                        ${price > 0 ? '<span class="seat-price-badge"></span>' : ''}
-                    </div>
-                `;
+            const totalCols = leftCols + 1 + rightCols; // +1 for aisle
+            const seatsPerRow = leftCols + rightCols;
+
+            // P-layout-fix: ساخت position map برای حفظ جایگاه صندلی‌ها
+            // کلید: "row-col-side" → شماره صندلی
+            const positionMap = {};
+            let hasPositions = false;
+            Object.keys(allSeats).forEach(function(seatNum) {
+                const seat = allSeats[seatNum];
+                if (seat.row && seat.col) {
+                    const key = seat.row + '-' + seat.col + '-' + (seat.side || '');
+                    positionMap[key] = seatNum;
+                    hasPositions = true;
+                }
             });
 
+            // محاسبه تعداد ردیف‌ها
+            let totalRows;
+            if (hasPositions) {
+                // اگه position داریم، max row رو پیدا می‌کنیم
+                let maxRow = 0;
+                Object.keys(positionMap).forEach(function(key) {
+                    const row = parseInt(key.split('-')[0]);
+                    if (row > maxRow) maxRow = row;
+                });
+                totalRows = maxRow;
+            } else {
+                // fallback: محاسبه از تعداد صندلی
+                totalRows = Math.ceil(seatNumbers.length / seatsPerRow);
+            }
+
+            let html = '<div class="vsbbm-grid-wrapper" data-bus-type="' + busType + '" style="display: grid; grid-template-columns: repeat(' + leftCols + ', 1fr) 30px repeat(' + rightCols + ', 1fr); gap: 8px 10px; max-width: ' + (totalCols * 60) + 'px;">';
+
+            // افزودن نوار جلوی اتوبوس (حرفه‌ای و ساده)
+            const totalSeats = seatNumbers.length;
+            html += '<div class="vsbbm-bus-front" style="grid-column: 1 / -1; text-align: center; padding: 10px; background: linear-gradient(135deg, #2c3e50, #34495e); color: #fff; border-radius: 8px 8px 0 0; margin-bottom: 8px; font-size: 13px; font-weight: 600;">';
+            html += '<span style="margin: 0 15px;">🚌 جلوی اتوبوس</span>';
+            html += '<span style="margin: 0 15px; opacity: 0.8; font-weight: 400;">' + this.getBusTypeLabel(busType) + ' • ' + totalSeats + ' صندلی</span>';
             html += '</div>';
+
+            // رندر صندلی‌ها ردیف به ردیف
+            if (hasPositions) {
+                // P-layout-fix: رندر بر اساس position (حفظ جایگاه)
+                for (let row = 1; row <= totalRows; row++) {
+                    // صندلی‌های سمت چپ
+                    for (let col = 1; col <= leftCols; col++) {
+                        const key = row + '-' + col + '-left';
+                        if (positionMap[key]) {
+                            html += this.renderSingleSeat(positionMap[key], allSeats, reservedSeats);
+                        } else {
+                            html += '<div class="vsbbm-seat-placeholder"></div>';
+                        }
+                    }
+                    // راهرو
+                    html += '<div class="vsbbm-aisle" title="راهرو"></div>';
+                    // صندلی‌های سمت راست
+                    for (let col = 1; col <= rightCols; col++) {
+                        const key = row + '-' + col + '-right';
+                        if (positionMap[key]) {
+                            html += this.renderSingleSeat(positionMap[key], allSeats, reservedSeats);
+                        } else {
+                            html += '<div class="vsbbm-seat-placeholder"></div>';
+                        }
+                    }
+                }
+            } else {
+                // fallback: رندر ترتیبی (برای data قدیمی بدون position)
+                let seatIndex = 0;
+                for (let row = 0; row < totalRows; row++) {
+                    for (let col = 0; col < leftCols; col++) {
+                        if (seatIndex < totalSeats) {
+                            html += this.renderSingleSeat(seatNumbers[seatIndex], allSeats, reservedSeats);
+                            seatIndex++;
+                        } else {
+                            html += '<div class="vsbbm-seat-placeholder"></div>';
+                        }
+                    }
+                    html += '<div class="vsbbm-aisle" title="راهرو"></div>';
+                    for (let col = 0; col < rightCols; col++) {
+                        if (seatIndex < totalSeats) {
+                            html += this.renderSingleSeat(seatNumbers[seatIndex], allSeats, reservedSeats);
+                            seatIndex++;
+                        } else {
+                            html += '<div class="vsbbm-seat-placeholder"></div>';
+                        }
+                    }
+                }
+            }
+
+            html += '</div>'; // بستن grid-wrapper
             this.$map.html(html);
+        },
+
+        // تابع کمکی برای برچسب نوع اتوبوس
+        getBusTypeLabel: function(busType) {
+            const labels = {
+                '2x2': 'استاندارد (۲×۲)',
+                '1x2': 'VIP (۱×۲)',
+                '1x1': 'لوکس (۱×۱)'
+            };
+            return labels[busType] || busType;
+        },
+
+        // تابع کمکی برای رندر یک صندلی
+        renderSingleSeat: function(seatNum, allSeats, reservedSeats) {
+            const seatInfo = allSeats[seatNum] || {};
+            const isReserved = reservedSeats.includes(seatNum) || reservedSeats.includes(parseInt(seatNum));
+            const statusClass = isReserved ? 'reserved' : 'available';
+            const seatLabel = seatInfo.label || seatNum;
+            const price = seatInfo.price || 0;
+            const tooltip = isReserved ? 'رزرو شده' : `صندلی ${seatLabel} - قیمت: ${price > 0 ? price : 'پایه'}`;
+
+            return `
+                <div class="vsbbm-seat ${statusClass}"
+                     data-seat-number="${seatNum}"
+                     title="${tooltip}">
+                    ${seatLabel}
+                    ${price > 0 ? '<span class="seat-price-badge"></span>' : ''}
+                </div>
+            `;
         },
 
         handleSeatClick: function(e) {

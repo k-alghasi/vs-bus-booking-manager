@@ -50,31 +50,66 @@
                     <button type="button" class="button button-secondary" id="vsbbm-btn-autonumber">1️⃣ شماره‌گذاری خودکار</button>
                     <button type="button" class="button button-secondary" id="vsbbm-btn-clear" style="color: #a00;">🗑️ پاکسازی</button>
                     <span style="margin-right: auto; font-size: 12px; color: #666;">کلیک یا درگ کنید.</span>
+                </div>
+                <div class="vsbbm-seat-editor-help" style="margin-bottom: 12px; padding: 8px 12px; background: #fff8e5; border-left: 4px solid #ffb900; font-size: 12px; color: #555; border-radius: 3px;">
+                    💡 <strong>راهنما:</strong> صندلی‌های آبی فعال هستند. برای غیرفعال کردن صندلی (مثلاً جای درب عقب یا راننده)، روی آن کلیک یا درگ کنید تا رنگ آن محو شود.
                 </div>`;
             this.$editor.before(toolbar);
         },
 
         loadInitialData: function() {
-            let rows = parseInt(this.$editor.data('rows'));
-            let cols = parseInt(this.$editor.data('cols'));
+            let rows = parseInt(this.$inputRows.val());
+            let cols = parseInt(this.$inputCols.val());
+            let type = $('#_vsbbm_bus_type').val() || '2x2';
             if (isNaN(rows) || rows <= 0) rows = 10;
             if (isNaN(cols) || cols <= 0) cols = 2;
             this.state.rows = rows;
             this.state.cols = cols;
+            this.state.type = type;
+        },
+
+        // P-layout-fix: محاسبه تعداد ستون‌های چپ و راست بر اساس bus_type
+        // در RTL، leftCols سمت راست قرار می‌گیره.
+        getLayoutColumns: function() {
+            const type = this.state.type;
+            let leftCols, rightCols;
+            if (type === '1x2') {
+                // VIP: دوتایی سمت راست، تکی سمت چپ
+                leftCols = 2;  // سمت راست در RTL
+                rightCols = 1; // سمت چپ در RTL
+            } else if (type === '1x1') {
+                leftCols = 1;
+                rightCols = 1;
+            } else {
+                leftCols = this.state.cols;
+                rightCols = this.state.cols;
+            }
+            return { leftCols, rightCols };
         },
 
         renderGrid: function() {
             this.$grid.empty();
-            const sideCols = this.state.cols;
-            const totalCols = (sideCols * 2) + 1;
-            this.$grid.css({ 'display': 'grid', 'grid-template-columns': `repeat(${totalCols}, 40px)`, 'gap': '5px', 'justify-content': 'center' });
+            const { leftCols, rightCols } = this.getLayoutColumns();
+            const totalCols = leftCols + 1 + rightCols; // +1 for aisle
+            this.$grid.css({ 'display': 'grid', 'grid-template-columns': `repeat(${leftCols}, 40px) 20px repeat(${rightCols}, 40px)`, 'gap': '5px', 'justify-content': 'center' });
 
             for (let r = 1; r <= this.state.rows; r++) {
-                for (let c = 1; c <= totalCols; c++) {
+                // ستون‌های چپ
+                for (let c = 1; c <= leftCols; c++) {
                     const $cell = $('<div class="vsbbm-admin-cell"></div>');
-                    const isAisle = (c === sideCols + 1);
-                    $cell.attr('data-row', r).attr('data-col', c);
-                    if (isAisle) $cell.addClass('aisle'); else $cell.addClass('seat-placeholder');
+                    $cell.attr('data-row', r).attr('data-col', c).attr('data-side', 'left');
+                    $cell.addClass('seat-placeholder');
+                    this.$grid.append($cell);
+                }
+                // راهرو
+                const $aisle = $('<div class="vsbbm-admin-cell aisle"></div>');
+                $aisle.attr('data-row', r).attr('data-col', 'aisle');
+                this.$grid.append($aisle);
+                // ستون‌های راست
+                for (let c = 1; c <= rightCols; c++) {
+                    const $cell = $('<div class="vsbbm-admin-cell"></div>');
+                    $cell.attr('data-row', r).attr('data-col', c).attr('data-side', 'right');
+                    $cell.addClass('seat-placeholder');
                     this.$grid.append($cell);
                 }
             }
@@ -87,12 +122,23 @@
                 const savedSeats = JSON.parse(rawData);
                 const seatKeys = Object.keys(savedSeats);
                 if (seatKeys.length > 0) {
-                    const $cells = this.$grid.find('.seat-placeholder');
-                    $cells.each(function(index) {
-                        if (index < seatKeys.length) {
-                            $(this).addClass('active').text(seatKeys[index]);
+                    // پاک کردن همه active فعلی
+                    this.$grid.find('.active').removeClass('active').text('');
+
+                    const self = this;
+                    seatKeys.forEach(function(key) {
+                        const seat = savedSeats[key];
+                        // P-layout-fix: بازسازی بر اساس position (row, col, side)
+                        if (seat.row && seat.col) {
+                            const $cell = self.$grid.find(
+                                '.seat-placeholder[data-row="' + seat.row + '"][data-col="' + seat.col + '"][data-side="' + seat.side + '"]'
+                            );
+                            if ($cell.length) {
+                                $cell.addClass('active').text(seat.label || key);
+                            }
                         }
                     });
+
                     this.syncInput();
                 }
             } catch (e) {}
@@ -116,9 +162,24 @@
                 e.preventDefault();
                 let newRows = parseInt(self.$inputRows.val()) || 10;
                 let newCols = parseInt(self.$inputCols.val()) || 2;
-                if(confirm(`بازسازی شبکه با ابعاد ${newRows}x${newCols}؟`)) {
+                let newType = $('#_vsbbm_bus_type').val() || '2x2';
+                if(confirm(`بازسازی شبکه با ابعاد ${newRows} ردیف و نوع ${newType}؟\n\n⚠️ توجه: صندلی‌های فعال قبلی حفظ می‌شوند.`)) {
+                    self.state.rows = newRows; self.state.cols = newCols; self.state.type = newType;
+                    self.renderGrid(); self.restoreSavedSeats(); self.syncInput();
+                }
+            });
+            // P-layout-fix: وقتی bus_type تغییر کرد، گرید رو بازسازی کن
+            $('#_vsbbm_bus_type').on('change', function() {
+                self.state.type = $(this).val() || '2x2';
+                self.renderGrid(); self.restoreSavedSeats(); self.syncInput();
+            });
+            // P-layout-fix: وقتی rows یا cols تغییر کرد (blur)، گرید رو بازسازی کن
+            this.$inputRows.add(this.$inputCols).on('blur', function() {
+                let newRows = parseInt(self.$inputRows.val()) || 10;
+                let newCols = parseInt(self.$inputCols.val()) || 2;
+                if (newRows !== self.state.rows || newCols !== self.state.cols) {
                     self.state.rows = newRows; self.state.cols = newCols;
-                    self.renderGrid(); self.syncInput();
+                    self.renderGrid(); self.restoreSavedSeats(); self.syncInput();
                 }
             });
             $('#vsbbm-btn-autonumber').on('click', function(e) { e.preventDefault(); self.autoNumberSeats(); });
@@ -128,10 +189,18 @@
         },
 
         toggleCell: function($cell) {
+            // P-layout-fix: منطق toggle بهبود یافت
+            // حالت ۱: drawMode = 'seat' (می‌خواهیم صندلی فعال کنیم)
             if (this.state.drawMode === 'seat') {
-                if (!$cell.hasClass('active')) $cell.addClass('active');
-            } else {
-                if ($cell.hasClass('active')) $cell.removeClass('active').text('');
+                if (!$cell.hasClass('active')) {
+                    $cell.addClass('active');
+                }
+            }
+            // حالت ۲: drawMode = 'aisle' (می‌خواهیم صندلی غیرفعال کنیم)
+            else {
+                if ($cell.hasClass('active')) {
+                    $cell.removeClass('active').text('');
+                }
             }
         },
 
@@ -149,7 +218,15 @@
             this.$grid.find('.active').each(function() {
                 let label = $(this).text();
                 if (label) {
-                    seatsData[label] = { label: label, price: 0, type: 'default' };
+                    // P-layout-fix: ذخیره position (row, col, side) برای حفظ جایگاه
+                    seatsData[label] = {
+                        label: label,
+                        price: 0,
+                        type: 'default',
+                        row: $(this).data('row') || 0,
+                        col: $(this).data('col') || 0,
+                        side: $(this).data('side') || ''
+                    };
                     seatsList.push(label);
                 }
             });

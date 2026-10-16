@@ -225,27 +225,64 @@
 | فیلد | مقدار |
 |------|------|
 | **فایل** | `vs-bus-booking-manager.php` + `includes/class-admin-interface.php` |
-| **وضعیت اصلاح** | ✅ اصلاح شد (نیازمند تست کاربر) |
+| **وضعیت اصلاح** | ✅ اصلاح شد + تأیید تست کاربر |
 
 **راه‌حل:**
-- Conditional loading فایل‌های Pro در bootstrap
+- Conditional loading فایل‌های Pro در bootstrap (با `file_exists` check)
 - Gating منوهای Pro در admin-interface
 - Gating اسکریپت‌های Pro (scanner.js)
 
-### P2-3: ساخت اسکلت افزونه Pro ⏳
+### P2-3: ساخت اسکلت افزونه Pro ✅
 | فیلد | مقدار |
 |------|------|
-| **وضعیت اصلاح** | ⏳ در صف |
+| **فایل** | `vs-bus-booking-manager-pro/vs-bus-booking-manager-pro.php` + `includes/class-pro-bootstrap.php` |
+| **وضعیت اصلاح** | ✅ کامل شد + تأیید تست کاربر |
 
-### P2-4: انتقال فیچرها به Pro ⏳
-| فیلد | مقدار |
-|------|------|
-| **وضعیت اصلاح** | ⏳ در صف |
+**راه‌حل:**
+- Bootstrap با بررسی وابستگی به Free (`is_free_active()`)
+- Helper utilities در `VSBBM_Pro_Bootstrap`
+- Admin notices برای Free موردنیاز و لایسنس نامعتبر
+- Hook `vsbbm_pro_init` برای توسعه‌دهندگان
 
-### P2-5: تست نهایی Free و Pro ⏳
+### P2-4: انتقال فیچرها به Pro ✅
 | فیلد | مقدار |
 |------|------|
-| **وضعیت اصلاح** | ⏳ در صف |
+| **فایل** | فایل‌های منتقل‌شده به `vs-bus-booking-manager-pro/` |
+| **وضعیت اصلاح** | ✅ کامل شد + تأیید تست کاربر |
+
+**فایل‌های منتقل‌شده:**
+- `includes/class-sms-notifications.php` (با استفاده از `VSBBM_Settings`)
+- `includes/class-rest-api.php` (با `link_reservations_by_keys`)
+- `includes/class-ticket-scanner.php` (جدید — استخراج از admin-interface)
+- `assets/js/scanner.js`
+
+### P2-5: تست نهایی Free و Pro ✅
+| فیلد | مقدار |
+|------|------|
+| **وضعیت اصلاح** | ✅ تأیید تست کاربر |
+
+**نتایج تست:**
+- Free بدون Pro: ✅ کار می‌کنه
+- Free + Pro با لایسنس: ✅ همه فیچرها فعال
+- REST API: ✅ کار می‌کنه
+- Scanner منو: ✅ ظاهر می‌شه
+- SMS/API Settings منو: ✅ ظاهر می‌شن
+
+### P2.5: بهبود چیدمان صندلی‌ها ✅
+| فیلد | مقدار |
+|------|------|
+| **فایل** | `assets/js/admin.js` + `assets/js/frontend.js` + `includes/class-seat-manager.php` + `assets/css/frontend.css` |
+| **وضعیت اصلاح** | ✅ کامل شد + تأیید تست کاربر |
+
+**بهبودها:**
+- چیدمان واقعی اتوبوس با راهروی وسط
+- رعایت bus_type (2x2, 1x2 VIP, 1x1 Luxury)
+- حفظ position صندلی‌ها (row, col, side)
+- فیکس VIP (دوتایی راست، تکی چپ در RTL)
+- نوار جلوی اتوبوس حرفه‌ای
+- راهنمای UX در Visual Seat Editor
+- حذف نوار درب عقب (جای خالی کافیه)
+- تغییر زنده گرید با تغییر bus_type
 
 ---
 
@@ -307,7 +344,7 @@
 |----|----------|------------|------------|
 | فاز ۰ | ۱۴ | ✅ همه | ۰ |
 | فاز ۱ | ۴ | ✅ همه | ۰ |
-| فاز ۲ | ۵ | ۲ | ۳ (۲.۳-۲.۵) |
+| فاز ۲ | ۵ + بهبود چیدمان | ✅ همه | ۰ |
 | فاز ۴ | ۳ | — | ۳ (به تعویق) |
 
 ---
@@ -320,3 +357,4 @@
 | ۲۰۲۵-۰۱ | به‌روزرسانی پس از فاز ۰ (۱۴ باگ) |
 | ۲۰۲۵-۰۱ | به‌روزرسانی پس از فاز ۱ (۴ مورد) |
 | ۲۰۲۵-۰۱ | به‌روزرسانی پس از فاز ۲.۱-۲.۲ (Gating) |
+| ۲۰۲۵-۰۱ | v2.0: تکمیل فاز ۲ + بهبود چیدمان صندلی‌ها |
