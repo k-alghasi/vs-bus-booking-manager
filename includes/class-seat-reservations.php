@@ -147,6 +147,15 @@ class VSBBM_Seat_Reservations {
     /**
      * Reserve a single seat.
      *
+     * P0-5: Uses DB-level unique constraint (active_key) for guaranteed
+     * mutual exclusion. This is bulletproof — MySQL itself rejects duplicate
+     * active reservations regardless of application-level locking.
+     *
+     * The unique key (product_id, seat_number, departure_timestamp, active_key)
+     * ensures only ONE active reservation can exist per seat per departure.
+     * Cancelled/expired rows have active_key=NULL (MySQL treats NULLs as
+     * distinct in unique keys), so history is preserved without conflict.
+     *
      * @param int    $product_id          Product ID.
      * @param string $seat_number         Seat Number.
      * @param int    $departure_timestamp Departure Date Timestamp.
@@ -164,14 +173,13 @@ class VSBBM_Seat_Reservations {
             return new WP_Error( 'invalid_seat', __( 'Invalid seat number.', 'vs-bus-booking-manager' ) );
         }
 
-        // Check availability logic
-        if ( ! self::is_seat_available( $product_id, $seat_number, $departure_timestamp ) ) {
-            return new WP_Error( 'seat_not_available', sprintf( __( 'Seat %s is already reserved.', 'vs-bus-booking-manager' ), $seat_number ) );
-        }
-
         $user_id         = $user_id ?: get_current_user_id();
         $expiration_time = date( 'Y-m-d H:i:s', strtotime( '+15 minutes' ) );
 
+        // P0-5: Insert with active_key='ACTIVE'.
+        // The unique constraint (product_id, seat_number, departure_timestamp, active_key)
+        // will reject this INSERT if another active reservation already exists.
+        // This is the DB-level guarantee — no race condition possible.
         $data = array(
             'product_id'          => $product_id,
             'seat_number'         => $seat_number,
@@ -179,20 +187,39 @@ class VSBBM_Seat_Reservations {
             'order_id'            => $order_id,
             'user_id'             => $user_id,
             'status'              => 'reserved',
+            'active_key'          => 'ACTIVE',
             'expires_at'          => $expiration_time,
             'passenger_data'      => ! empty( $passenger_data ) ? wp_json_encode( $passenger_data ) : null,
         );
 
-        $format = array( '%d', '%s', '%d', '%d', '%d', '%s', '%s', '%s' );
+        $format = array( '%d', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%s' );
 
+        // Suppress duplicate key errors to handle them gracefully
+        $suppress = $wpdb->suppress_errors();
         $result = $wpdb->insert( $table_name, $data, $format );
+        $wpdb->suppress_errors( $suppress );
 
         if ( $result ) {
             self::clear_reservation_cache( $product_id, $departure_timestamp );
             return $wpdb->insert_id;
         }
 
-        return new WP_Error( 'reservation_failed', __( 'Database error while reserving seat.', 'vs-bus-booking-manager' ) );
+        // Check if failure was due to duplicate key (seat already reserved)
+        if ( $wpdb->last_error && false !== stripos( $wpdb->last_error, 'Duplicate' ) ) {
+            return new WP_Error(
+                'seat_not_available',
+                sprintf(
+                    /* translators: %s: seat number */
+                    __( 'Seat %s is already reserved. Please choose another seat.', 'vs-bus-booking-manager' ),
+                    $seat_number
+                )
+            );
+        }
+
+        return new WP_Error(
+            'reservation_failed',
+            __( 'Database error while reserving seat.', 'vs-bus-booking-manager' )
+        );
     }
 
     /**
@@ -211,6 +238,9 @@ class VSBBM_Seat_Reservations {
     /**
      * Get reserved seats for a specific product and time.
      *
+     * P0-4: رزروهای موقت منقضی‌شده (reserved با expires_at گذشته ولی هنوز
+     * توسط cron به expired تغییر نکرده) دیگر صندلی را بلوکه نمی‌کنند.
+     *
      * @param int $product_id          Product ID.
      * @param int $departure_timestamp Timestamp.
      * @return array [ 'seat_number' => 'status' ]
@@ -226,13 +256,22 @@ class VSBBM_Seat_Reservations {
         global $wpdb;
         $table_name = $wpdb->prefix . self::$table_name;
 
+        // P0-4: استفاده از current_time('mysql') برای هماهنگی timezone با
+        // نحوه ذخیره expires_at (که با date() PHP و timezone وردپرس ذخیره می‌شود).
+        $now = current_time( 'mysql' );
+
         $results = $wpdb->get_results( $wpdb->prepare(
             "SELECT seat_number, status FROM $table_name 
              WHERE product_id = %d 
              AND departure_timestamp = %d
-             AND status IN ('reserved', 'confirmed')",
+             AND status IN ('reserved', 'confirmed')
+             AND (
+                status = 'confirmed' 
+                OR expires_at > %s
+             )",
             $product_id,
-            $departure_timestamp
+            $departure_timestamp,
+            $now
         ) );
 
         $seats = array();
@@ -364,10 +403,18 @@ class VSBBM_Seat_Reservations {
 
     /**
      * Handle WooCommerce Order Status Change.
+     *
+     * P0-5: Added fallback to link orphan reservations (those without order_id)
+     * before checking. This ensures reservations are confirmed even if the
+     * primary link mechanism (P0-3) failed.
      */
     public function handle_order_status_change( $order_id, $old_status, $new_status, $order ) {
         global $wpdb;
         $table_name = $wpdb->prefix . self::$table_name;
+
+        // P0-5: Fallback — link any orphan reservations for this order's items
+        // This catches cases where link_reservations_to_order() didn't run or failed.
+        $this->link_orphan_reservations_for_order( $order );
 
         // Check if this order has reservations
         $reservations = $wpdb->get_results( $wpdb->prepare( "SELECT id, product_id, departure_timestamp FROM $table_name WHERE order_id = %d", $order_id ) );
@@ -376,22 +423,25 @@ class VSBBM_Seat_Reservations {
             return;
         }
 
-        if ( in_array( $new_status, array( 'processing', 'completed' ) ) ) {
-            // Confirm
+        if ( in_array( $new_status, array( 'processing', 'completed', 'on-hold' ) ) ) {
+            // Confirm — keep active_key='ACTIVE' (still blocks other reservations)
+            // Note: 'on-hold' اضافه شد چون پرداخت با چک (Cheque) در ووکامرس
+            // سفارش را به on-hold می‌برد، نه processing. بدون این، رزروها
+            // در حالت reserved می‌مانند و صندلی‌ها آزاد می‌شوند.
             $wpdb->update(
                 $table_name,
-                array( 'status' => 'confirmed', 'expires_at' => null ),
+                array( 'status' => 'confirmed', 'expires_at' => null, 'active_key' => 'ACTIVE' ),
                 array( 'order_id' => $order_id ),
-                array( '%s', '%s' ),
+                array( '%s', '%s', '%s' ),
                 array( '%d' )
             );
         } elseif ( in_array( $new_status, array( 'cancelled', 'refunded', 'failed' ) ) ) {
-            // Cancel
+            // Cancel — set active_key=NULL to free the seat for future bookings
             $wpdb->update(
                 $table_name,
-                array( 'status' => 'cancelled' ),
+                array( 'status' => 'cancelled', 'active_key' => null ),
                 array( 'order_id' => $order_id ),
-                array( '%s' ),
+                array( '%s', '%s' ),
                 array( '%d' )
             );
         }
@@ -403,10 +453,60 @@ class VSBBM_Seat_Reservations {
     }
 
     /**
+     * P0-5: Link orphan reservations to an order.
+     *
+     * Fallback mechanism: if reservations were created (status='reserved')
+     * but never linked to an order_id (e.g., link_reservations_to_order failed),
+     * this method finds them by user_id + product_id + timestamp and links them.
+     *
+     * Safe to call multiple times — only updates rows where order_id IS NULL.
+     *
+     * @param WC_Order $order Order object.
+     */
+    private function link_orphan_reservations_for_order( $order ) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::$table_name;
+        $user_id    = $order->get_customer_id();
+        $order_id   = $order->get_id();
+
+        if ( ! $user_id ) {
+            return; // Guest checkout — can't reliably link by user
+        }
+
+        foreach ( $order->get_items() as $item ) {
+            $product_id = $item->get_product_id();
+            $timestamp  = $item->get_meta( '_vsbbm_departure_timestamp' );
+
+            if ( ! $timestamp ) {
+                continue;
+            }
+
+            // Find orphan reservations for this user/product/time
+            $updated = $wpdb->query( $wpdb->prepare(
+                "UPDATE $table_name
+                 SET order_id = %d
+                 WHERE product_id = %d
+                 AND departure_timestamp = %d
+                 AND user_id = %d
+                 AND order_id IS NULL
+                 AND status = 'reserved'",
+                $order_id,
+                $product_id,
+                $timestamp,
+                $user_id
+            ) );
+
+            if ( $updated ) {
+                self::clear_reservation_cache( $product_id, $timestamp );
+            }
+        }
+    }
+
+    /**
      * Cancel reservations by specific keys (IDs).
      * Useful for rolling back a failed Add to Cart action.
      *
-     * @param array $reservation_ids Array of IDs.
+     * P1-2: Now clears cache for affected product/timestamp combinations.
      */
     public static function cancel_reservations_by_keys( $reservation_ids ) {
         if ( empty( $reservation_ids ) ) {
@@ -418,26 +518,49 @@ class VSBBM_Seat_Reservations {
         
         $ids_placeholder = implode( ',', array_fill( 0, count( $reservation_ids ), '%d' ) );
 
-        // We need product_id and timestamp to clear cache effectively, but for cancellation just update DB
-        // The cache TTL will handle the rest or manual clear if critical
-        $wpdb->query( $wpdb->prepare(
-            "UPDATE $table_name SET status = 'cancelled' WHERE id IN ($ids_placeholder)",
+        // P1-2: Fetch product_id and departure_timestamp before cancelling
+        // so we can clear the cache effectively.
+        $reservations = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, product_id, departure_timestamp FROM $table_name WHERE id IN ($ids_placeholder)",
             $reservation_ids
         ) );
+
+        if ( empty( $reservations ) ) {
+            return;
+        }
+
+        // Cancel the reservations — set active_key=NULL to free the seats
+        $wpdb->query( $wpdb->prepare(
+            "UPDATE $table_name SET status = 'cancelled', active_key = NULL WHERE id IN ($ids_placeholder)",
+            $reservation_ids
+        ) );
+
+        // P1-2: Clear cache for each unique product/timestamp combination
+        $cache_cleared = array();
+        foreach ( $reservations as $res ) {
+            $cache_key = $res->product_id . '_' . $res->departure_timestamp;
+            if ( ! isset( $cache_cleared[ $cache_key ] ) ) {
+                self::clear_reservation_cache( $res->product_id, $res->departure_timestamp );
+                $cache_cleared[ $cache_key ] = true;
+            }
+        }
     }
 
     /**
      * Cleanup expired reservations (Cron).
+     *
+     * P0-5: Also sets active_key=NULL to free seats for future bookings.
      */
     public function cleanup_expired_reservations() {
         global $wpdb;
         $table_name = $wpdb->prefix . self::$table_name;
         $now        = current_time( 'mysql' );
 
-        // Find expired to clear cache (optional, could be heavy if many expired)
-        // Simple update:
+        // P0-5: Set active_key=NULL so the unique constraint no longer blocks
+        // new reservations for these expired seats.
         $wpdb->query( $wpdb->prepare(
-            "UPDATE $table_name SET status = 'expired' 
+            "UPDATE $table_name 
+             SET status = 'expired', active_key = NULL 
              WHERE status = 'reserved' AND expires_at < %s",
             $now
         ) );
@@ -464,7 +587,13 @@ class VSBBM_Seat_Reservations {
         
         $res = self::get_reservation_details_by_id( $id );
         if ( $res ) {
-            $result = $wpdb->update( $table_name, array( 'status' => 'cancelled' ), array( 'id' => $id ) );
+            $result = $wpdb->update( 
+                $table_name, 
+                array( 'status' => 'cancelled', 'active_key' => null ), 
+                array( 'id' => $id ),
+                array( '%s', '%s' ),
+                array( '%d' )
+            );
             if ( $result ) {
                 self::clear_reservation_cache( $res->product_id, $res->departure_timestamp );
             }
@@ -482,7 +611,13 @@ class VSBBM_Seat_Reservations {
 
         $res = self::get_reservation_details_by_id( $id );
         if ( $res ) {
-            $result = $wpdb->update( $table_name, array( 'status' => 'confirmed', 'expires_at' => null ), array( 'id' => $id ) );
+            $result = $wpdb->update( 
+                $table_name, 
+                array( 'status' => 'confirmed', 'expires_at' => null, 'active_key' => 'ACTIVE' ), 
+                array( 'id' => $id ),
+                array( '%s', '%s', '%s' ),
+                array( '%d' )
+            );
             if ( $result ) {
                 self::clear_reservation_cache( $res->product_id, $res->departure_timestamp );
             }
