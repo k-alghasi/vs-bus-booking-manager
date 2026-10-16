@@ -1,0 +1,36 @@
+# Dependencies
+vendor/
+node_modules/
+
+# Development & Build files
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+*.zip
+*.tar.gz
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# IDE
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.bak
+*~

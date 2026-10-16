@@ -2,8 +2,7 @@
 /**
  * Class VSBBM_Admin_Interface
  *
- * Handles admin menus, dashboard, scanner, and settings pages.
- * Updated: Added Ticket Scanner & Cleanup.
+ * Handles admin menus, dashboard, and settings pages.
  *
  * @package VSBBM
  * @since   2.1.0
@@ -34,10 +33,6 @@ class VSBBM_Admin_Interface {
         add_action( 'wp_ajax_vsbbm_use_ticket', array( $this, 'use_ticket_ajax' ) );
         add_action( 'wp_ajax_vsbbm_clear_cache', array( $this, 'clear_cache_ajax' ) );
 
-        // Scanner AJAX (New)
-        // Note: These should ideally be in Ticket Manager, but we register hooks here if logic is simple
-        // or ensure Ticket Manager is loaded. Let's assume Ticket Manager handles the logic.
-
         // Order Meta Display
         add_action( 'woocommerce_before_order_itemmeta', array( $this, 'display_order_passenger_info' ), 10, 3 );
 
@@ -49,6 +44,9 @@ class VSBBM_Admin_Interface {
 
     /**
      * Add admin menu pages.
+     *
+     * P2-4: Pro menus (Scanner, SMS, API) توسط افزونه Pro اضافه می‌شوند.
+     * این فایل فقط منوهای Free را ثبت می‌کند.
      */
     public function add_admin_menus() {
         // Main Menu
@@ -64,29 +62,28 @@ class VSBBM_Admin_Interface {
 
         // 1. Dashboard
         add_submenu_page( 'vsbbm-dashboard', __( 'Dashboard', 'vs-bus-booking-manager' ), __( 'Dashboard', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-dashboard', array( $this, 'render_dashboard' ) );
-        
+
         // 2. Operations (Bookings & Reservations)
         add_submenu_page( 'vsbbm-dashboard', __( 'All Bookings', 'vs-bus-booking-manager' ), __( 'All Bookings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-bookings', array( $this, 'render_bookings_page' ) );
         add_submenu_page( 'vsbbm-dashboard', __( 'Seat Reservations', 'vs-bus-booking-manager' ), __( 'Reservations', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-reservations', array( $this, 'render_reservations_page' ) );
-        
-        // 3. Ticket Scanner (New Feature)
-        add_submenu_page( 'vsbbm-dashboard', __( 'Ticket Scanner', 'vs-bus-booking-manager' ), __( 'Scanner', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-scanner', array( $this, 'render_scanner_page' ) );
 
-        // 4. Management (Blacklist)
+        // 3. Management (Blacklist)
         add_submenu_page( 'vsbbm-dashboard', __( 'Blacklist', 'vs-bus-booking-manager' ), __( 'Blacklist', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-blacklist', array( $this, 'render_blacklist_page' ) );
 
-        // 5. Settings Group (We will consolidate these into tabs later)
+        // 4. Settings Group (Free)
         add_submenu_page( 'vsbbm-dashboard', __( 'General Settings', 'vs-bus-booking-manager' ), __( 'Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-settings', array( $this, 'render_settings_page' ) );
         add_submenu_page( 'vsbbm-dashboard', __( 'Email Settings', 'vs-bus-booking-manager' ), __( 'Email Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-email-settings', array( $this, 'render_email_settings_page' ) );
-        add_submenu_page( 'vsbbm-dashboard', __( 'SMS Settings', 'vs-bus-booking-manager' ), __( 'SMS Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-sms-settings', array( $this, 'render_sms_settings_page' ) );
-        add_submenu_page( 'vsbbm-dashboard', __( 'API Settings', 'vs-bus-booking-manager' ), __( 'API Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-api-settings', array( $this, 'render_api_settings_page' ) );
         add_submenu_page( 'vsbbm-dashboard', __( 'License', 'vs-bus-booking-manager' ), __( 'License', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-license', array( $this, 'render_license_page' ) );
-        
-        // Advanced / Tools
+
+        // 5. Advanced / Tools
         add_submenu_page( 'vsbbm-dashboard', __( 'Cache & Optimization', 'vs-bus-booking-manager' ), __( 'Cache', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-cache', array( $this, 'render_cache_page' ) );
-        
-        // Removed "Ticket Manager" page (it was empty placeholder) and "Reports" (merged into dashboard usually)
-        // Removed "Performance Test" (Dev only)
+
+        // P2-4: Pro menus — فقط اگر لایسنس فعال باشد
+        // Scanner, SMS Settings, API Settings توسط افزونه Pro اضافه می‌شوند
+        if ( VSBBM_Settings::get_instance()->is_pro_active() ) {
+            add_submenu_page( 'vsbbm-dashboard', __( 'SMS Settings', 'vs-bus-booking-manager' ), __( 'SMS Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-sms-settings', array( $this, 'render_sms_settings_page' ) );
+            add_submenu_page( 'vsbbm-dashboard', __( 'API Settings', 'vs-bus-booking-manager' ), __( 'API Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-api-settings', array( $this, 'render_api_settings_page' ) );
+        }
     }
 
     public function add_passenger_fields_settings() {
@@ -98,7 +95,9 @@ class VSBBM_Admin_Interface {
     }
 
     /**
-     * Enqueue Admin Scripts (Includes Scanner and Dashboard Data).
+     * Enqueue Admin Scripts.
+     *
+     * P2-4: Scanner scripts توسط افزونه Pro لود می‌شوند.
      */
     public function enqueue_admin_scripts( $hook ) {
         // فقط در صفحات پلاگین لود شود
@@ -112,25 +111,11 @@ class VSBBM_Admin_Interface {
 
             // اگر در صفحه داشبورد هستیم، Chart.js را اضافه کن
             if ( strpos( $hook, 'vsbbm-dashboard' ) !== false ) {
-                // استفاده از نسخه پایدار 4.4.0
                 wp_enqueue_script( 'chart-js', 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js', array(), '4.4.0', true );
-                $js_deps[] = 'chart-js'; // اضافه کردن به پیش‌نیازهای فایل اصلی
+                $js_deps[] = 'chart-js';
             }
 
-            // اگر در صفحه اسکنر هستیم، کتابخانه QR را اضافه کن
-            if ( strpos( $hook, 'vsbbm-scanner' ) !== false ) {
-                wp_enqueue_script( 'html5-qrcode', 'https://unpkg.com/html5-qrcode', array(), '2.3.8', true );
-                $js_deps[] = 'html5-qrcode';
-                
-                // اسکریپت جداگانه اسکنر (اختیاری: یا می‌توان همه را در admin.js ادغام کرد)
-                wp_enqueue_script( 'vsbbm-scanner', VSBBM_PLUGIN_URL . 'assets/js/scanner.js', array( 'jquery', 'html5-qrcode' ), VSBBM_VERSION, true );
-                wp_localize_script( 'vsbbm-scanner', 'vsbbm_scanner_vars', array(
-                    'ajax_url' => admin_url( 'admin-ajax.php' ),
-                    'nonce'    => wp_create_nonce( 'vsbbm_scanner_nonce' )
-                ));
-            }
-
-            // 3. فایل اصلی جاوااسکریپت ادمین (با وابستگی‌های تعریف شده)
+            // 3. فایل اصلی جاوااسکریپت ادمین
             wp_enqueue_script( 'vsbbm-admin', VSBBM_PLUGIN_URL . 'assets/js/admin.js', $js_deps, VSBBM_VERSION, true );
 
             // 4. ارسال داده‌ها به JS
@@ -211,9 +196,8 @@ class VSBBM_Admin_Interface {
         
         for ( $i = 6; $i >= 0; $i-- ) {
             $date = date( 'Y-m-d', strtotime( "-$i days" ) );
-            $labels[] = date_i18n( 'l', strtotime( $date ) ); // نام روز هفته (شنبه، ...)
+            $labels[] = date_i18n( 'l', strtotime( $date ) );
             
-            // جمع مبلغ سفارشات تکمیل شده در آن روز
             // P0-8: فیلتر EXISTS برای سفارشات اتوبوسی فقط
             $daily_sales = $wpdb->get_var( $wpdb->prepare( "
                 SELECT SUM(pm.meta_value) 
@@ -247,51 +231,9 @@ class VSBBM_Admin_Interface {
     }
 
     /**
-     * Render Scanner Page.
+     * Render Dashboard Page.
      */
-    public function render_scanner_page() {
-        ?>
-        <div class="wrap">
-            <h1><?php esc_html_e( 'Ticket Scanner', 'vs-bus-booking-manager' ); ?></h1>
-            
-            <div class="vsbbm-scanner-wrapper">
-                <!-- Camera Box -->
-                <div class="vsbbm-scanner-box">
-                    <h3><?php esc_html_e( 'Scan QR Code', 'vs-bus-booking-manager' ); ?></h3>
-                    <div id="vsbbm-qr-reader" style="width: 100%;"></div>
-                    <p class="description"><?php esc_html_e( 'Use your device camera to scan ticket QR.', 'vs-bus-booking-manager' ); ?></p>
-                </div>
-
-                <!-- Manual Entry -->
-                <div class="vsbbm-manual-entry">
-                    <h3><?php esc_html_e( 'Manual Check', 'vs-bus-booking-manager' ); ?></h3>
-                    <div style="display:flex; gap:10px; justify-content:center;">
-                        <input type="text" id="vsbbm-ticket-code" placeholder="TK-..." class="regular-text">
-                        <button class="button button-primary" id="vsbbm-check-btn"><?php esc_html_e( 'Check Ticket', 'vs-bus-booking-manager' ); ?></button>
-                    </div>
-                </div>
-
-                <!-- Results -->
-                <div id="vsbbm-scan-result" style="display:none;">
-                    <div class="scan-status-icon"></div>
-                    <h2 class="scan-title"></h2>
-                    <div class="scan-details"></div>
-                    <button class="button button-large button-primary" id="vsbbm-confirm-usage" style="display:none; margin-top:20px; width:100%;">
-                        <?php esc_html_e( 'Confirm & Check-in', 'vs-bus-booking-manager' ); ?>
-                    </button>
-                </div>
-            </div>
-        </div>
-        <?php
-    }
-
-    // --- Other Render Methods (Placeholders or includes) ---
-    
-    // Dashboard Page
-
-    //(ساختار HTML برای نمایش کارت‌ها و نمودارها)
     public function render_dashboard() {
-        // محاسبه آمارهای خلاصه
         $stats = $this->get_quick_stats();
         ?>
         <div class="wrap vsbbm-admin-dashboard">
@@ -336,22 +278,20 @@ class VSBBM_Admin_Interface {
         </div>
         <?php
     }
+
     // P0-7: صفحات All Bookings و Reservations قبلاً خالی بودن چون
     // قالب‌های bookings.php و reservations.php وجود نداشتن.
-    // فعلاً یک صفحه placeholder مفید نشون می‌دیم. در فاز ۱ کامل ساخته می‌شه.
+    // فعلاً یک صفحه placeholder مفید نشون می‌دیم.
 
     /**
      * Render Bookings page.
-     * P0-7: نمایش پیام placeholder به‌جای صفحه خالی.
      */
     public function render_bookings_page() {
-        // اگه قالب وجود داشت (برای آینده)، ازش استفاده کن
         if ( file_exists( VSBBM_PLUGIN_PATH . 'templates/admin/bookings.php' ) ) {
             include VSBBM_PLUGIN_PATH . 'templates/admin/bookings.php';
             return;
         }
 
-        // وگرنه یک صفحه placeholder مفید نشون بده
         $orders_link = admin_url( 'edit.php?post_type=shop_order' );
         ?>
         <div class="wrap">
@@ -373,32 +313,27 @@ class VSBBM_Admin_Interface {
 
     /**
      * Render Reservations page.
-     * P0-7: نمایش رزروهای موقت از دیتابیس به‌جای صفحه خالی.
      */
     public function render_reservations_page() {
-        // اگه قالب وجود داشت (برای آینده)، ازش استفاده کن
         if ( file_exists( VSBBM_PLUGIN_PATH . 'templates/admin/reservations.php' ) ) {
             include VSBBM_PLUGIN_PATH . 'templates/admin/reservations.php';
             return;
         }
 
-        // وگرنه رزروهای موقت رو از دیتابیس نشون بده
         global $wpdb;
         $table_name = $wpdb->prefix . 'vsbbm_seat_reservations';
 
-        // بررسی وجود جدول
         if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_name ) ) !== $table_name ) {
             echo '<div class="wrap"><h1>' . esc_html__( 'Seat Reservations', 'vs-bus-booking-manager' ) . '</h1>';
             echo '<div class="notice notice-error"><p>' . esc_html__( 'Reservations table does not exist. Please deactivate and reactivate the plugin.', 'vs-bus-booking-manager' ) . '</p></div></div>';
             return;
         }
 
-        // آخرین ۵۰ رزرو
         $reservations = $wpdb->get_results( "SELECT * FROM $table_name ORDER BY id DESC LIMIT 50" );
         ?>
         <div class="wrap">
             <h1><?php esc_html_e( 'Seat Reservations', 'vs-bus-booking-manager' ); ?></h1>
-            <p class="description"><?php esc_html_e( 'Showing latest 50 reservations. Full management UI coming in Phase 1.', 'vs-bus-booking-manager' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Showing latest 50 reservations.', 'vs-bus-booking-manager' ); ?></p>
 
             <table class="wp-list-table widefat fixed striped">
                 <thead>
@@ -435,8 +370,8 @@ class VSBBM_Admin_Interface {
                                 <td><?php echo esc_html( $product ? $product : '—' ); ?></td>
                                 <td><strong><?php echo esc_html( $res->seat_number ); ?></strong></td>
                                 <td><?php echo esc_html( $departure ); ?></td>
-                                <td><?php echo $order_link; // phpcs:ignore — HTML link ?></td>
-                                <td <?php echo $status_class; // phpcs:ignore — inline style ?>><?php echo esc_html( $res->status ); ?></td>
+                                <td><?php echo $order_link; // phpcs:ignore ?></td>
+                                <td <?php echo $status_class; // phpcs:ignore ?>><?php echo esc_html( $res->status ); ?></td>
                                 <td><?php echo esc_html( $res->reserved_at ); ?></td>
                                 <td><?php echo $res->expires_at ? esc_html( $res->expires_at ) : '—'; ?></td>
                             </tr>
@@ -450,18 +385,16 @@ class VSBBM_Admin_Interface {
 
     public function render_blacklist_page() { if ( class_exists( 'VSBBM_Blacklist' ) ) VSBBM_Blacklist::render_admin_page(); }
     
-    // Settings Pages (Simple Placeholders for now)
+    // Settings Pages (Placeholders)
     public function render_settings_page() { echo '<div class="wrap"><h1>General Settings</h1></div>'; }
     public function render_email_settings_page() { echo '<div class="wrap"><h1>Email Settings</h1></div>'; }
     public function render_sms_settings_page() { echo '<div class="wrap"><h1>SMS Settings</h1></div>'; }
     public function render_api_settings_page() { echo '<div class="wrap"><h1>API Settings</h1></div>'; }
     public function render_license_page() { echo '<div class="wrap"><h1>License</h1></div>'; }
     public function render_cache_page() { echo '<div class="wrap"><h1>Cache</h1></div>'; }
-    public function render_tickets_page() { echo '<div class="wrap"><h1>Tickets (See Scanner)</h1></div>'; }
 
-    // --- Passenger Fields Settings (Same as before) ---
+    // --- Passenger Fields Settings ---
     public function render_passenger_fields_settings() {
-        // (Use the code from previous step - abbreviated here to save space)
         $fields = get_option('vsbbm_passenger_fields', array());
         $blacklist_target = get_option('vsbbm_blacklist_target_field', 'کد ملی');
         if (empty($fields)) {
@@ -549,7 +482,7 @@ class VSBBM_Admin_Interface {
         return $sanitized;
     }
 
-    // --- Helper Methods ---
+    // --- Helper Methods (Placeholders) ---
     public function get_booking_details_ajax() {}
     public function update_booking_status_ajax() {}
     public function export_bookings_ajax() {}
