@@ -184,7 +184,11 @@ class VSBBM_Seat_Manager {
                     $clean_seats[ sanitize_key( $k ) ] = array(
                         'label' => sanitize_text_field( $v['label'] ?? $k ),
                         'price' => floatval( $v['price'] ?? 0 ),
-                        'type'  => sanitize_key( $v['type'] ?? 'default' )
+                        'type'  => sanitize_key( $v['type'] ?? 'default' ),
+                        // P-layout-fix: ذخیره position برای حفظ جایگاه صندلی
+                        'row'   => isset( $v['row'] ) ? intval( $v['row'] ) : 0,
+                        'col'   => isset( $v['col'] ) ? intval( $v['col'] ) : 0,
+                        'side'  => sanitize_text_field( $v['side'] ?? '' ),
                     );
                 }
             }
@@ -273,6 +277,7 @@ class VSBBM_Seat_Manager {
         echo '<div id="vsbbm-seat-selector" class="vsbbm-seat-selector-container" ';
         echo 'data-product-id="' . esc_attr( $product->get_id() ) . '" ';
         echo 'data-cols="' . esc_attr( $settings['columns'] ) . '" ';
+        echo 'data-bus-type="' . esc_attr( $settings['type'] ) . '" ';
         echo 'data-price="' . esc_attr( $product->get_price() ) . '">';
 
         if ( 'yes' === $schedule['enable_schedule'] ) {
