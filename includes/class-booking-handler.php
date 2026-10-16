@@ -107,12 +107,19 @@ class VSBBM_Booking_Handler {
 
     /**
      * Calculate price when item is added to cart.
-     * We set quantity to 1 (representing one booking group) but price = unit_price * passengers.
+     *
+     * P0-6: Now calculates sum of individual seat prices instead of
+     * just base_price × passenger_count. If a seat has a custom price > 0,
+     * it's used; otherwise falls back to the product base price.
+     *
+     * @param array  $cart_item_data Cart item data.
+     * @param string $cart_item_key  Cart item key.
+     * @return array Modified cart item data.
      */
     public static function calculate_cart_item_price( $cart_item_data, $cart_item_key ) {
         if ( isset( $cart_item_data['vsbbm_passengers'] ) ) {
             $passenger_count = count( $cart_item_data['vsbbm_passengers'] );
-            
+
             // Get original price (consider variations if applicable)
             $original_price = (float) $cart_item_data['data']->get_price();
 
@@ -120,29 +127,90 @@ class VSBBM_Booking_Handler {
             $cart_item_data['vsbbm_original_price']  = $original_price;
             $cart_item_data['vsbbm_passenger_count'] = $passenger_count;
 
+            // P0-6: Calculate total based on individual seat prices
+            $total_price = self::calculate_seats_total_price( $cart_item_data, $original_price );
+
+            // Store calculated total for use in display filters
+            $cart_item_data['vsbbm_calculated_total'] = $total_price;
+
             // Set new total price for this item
-            $new_price = $original_price * $passenger_count;
-            $cart_item_data['data']->set_price( $new_price );
+            $cart_item_data['data']->set_price( $total_price );
         }
         return $cart_item_data;
     }
 
     /**
+     * P0-6: Calculate the total price for all seats in a cart item.
+     *
+     * For each passenger's seat, checks if a custom price is defined in the
+     * product's seat layout. If yes, uses it; otherwise falls back to the
+     * product base price.
+     *
+     * @param array $cart_item_data Cart item data (must contain 'vsbbm_passengers' and 'product_id').
+     * @param float $base_price     Product base price (fallback for seats without custom price).
+     * @return float Total price for all seats.
+     */
+    private static function calculate_seats_total_price( $cart_item_data, $base_price ) {
+        if ( empty( $cart_item_data['vsbbm_passengers'] ) ) {
+            return 0;
+        }
+
+        // Get product ID (works for both main product and variations)
+        $product_id = ! empty( $cart_item_data['variation_id'] )
+            ? $cart_item_data['variation_id']
+            : ( ! empty( $cart_item_data['product_id'] ) ? $cart_item_data['product_id'] : 0 );
+
+        if ( ! $product_id ) {
+            // Fallback to old behavior if we can't determine product
+            return $base_price * count( $cart_item_data['vsbbm_passengers'] );
+        }
+
+        // Get seat layout with custom prices
+        $all_seats = array();
+        if ( class_exists( 'VSBBM_Seat_Manager' ) ) {
+            $all_seats = VSBBM_Seat_Manager::get_seat_numbers( $product_id );
+        }
+
+        $total = 0;
+        foreach ( $cart_item_data['vsbbm_passengers'] as $passenger ) {
+            $seat_number = isset( $passenger['seat_number'] ) ? $passenger['seat_number'] : '';
+
+            // Check if this seat has a custom price
+            if ( $seat_number && ! empty( $all_seats[ $seat_number ]['price'] ) ) {
+                $seat_price = (float) $all_seats[ $seat_number ]['price'];
+                if ( $seat_price > 0 ) {
+                    $total += $seat_price;
+                    continue;
+                }
+            }
+
+            // Fallback to base price
+            $total += $base_price;
+        }
+
+        return $total;
+    }
+
+    /**
      * Restore custom price when loading cart from session.
+     *
+     * P0-6: Recalculates seat-based total price (same logic as calculate_cart_item_price)
+     * to ensure consistency when cart is restored from session.
      */
     public static function get_cart_item_from_session( $cart_item_data, $values ) {
         if ( isset( $values['vsbbm_passengers'] ) ) {
             $cart_item_data['vsbbm_passengers']        = $values['vsbbm_passengers'];
             $cart_item_data['vsbbm_passenger_count']   = count( $values['vsbbm_passengers'] );
             $cart_item_data['vsbbm_original_price']    = isset( $values['vsbbm_original_price'] ) ? (float) $values['vsbbm_original_price'] : (float) $cart_item_data['data']->get_price();
-            
+
             if ( isset( $values['vsbbm_departure_timestamp'] ) ) {
                 $cart_item_data['vsbbm_departure_timestamp'] = $values['vsbbm_departure_timestamp'];
             }
 
-            // Recalculate price
-            $new_price = $cart_item_data['vsbbm_original_price'] * $cart_item_data['vsbbm_passenger_count'];
-            $cart_item_data['data']->set_price( $new_price );
+            // P0-6: Recalculate total based on individual seat prices
+            $total_price = self::calculate_seats_total_price( $cart_item_data, $cart_item_data['vsbbm_original_price'] );
+            $cart_item_data['vsbbm_calculated_total'] = $total_price;
+            $cart_item_data['data']->set_price( $total_price );
         }
         return $cart_item_data;
     }
@@ -312,17 +380,36 @@ class VSBBM_Booking_Handler {
 
     /**
      * Display correct calculated price in cart table.
+     *
+     * P0-6: Uses vsbbm_calculated_total (sum of individual seat prices)
+     * instead of base_price × count. Shows breakdown per seat.
      */
     public static function display_cart_item_price( $price, $cart_item, $cart_item_key ) {
         if ( isset( $cart_item['vsbbm_passengers'] ) ) {
-            $count          = count( $cart_item['vsbbm_passengers'] );
-            $original_price = isset( $cart_item['vsbbm_original_price'] ) ? $cart_item['vsbbm_original_price'] : 0;
+            $count = count( $cart_item['vsbbm_passengers'] );
 
-            if ( $original_price > 0 ) {
-                $total_price_html = wc_price( $original_price * $count );
-                $unit_price_html  = wc_price( $original_price );
+            // P0-6: Use calculated total (sum of individual seat prices)
+            $total_price = isset( $cart_item['vsbbm_calculated_total'] )
+                ? (float) $cart_item['vsbbm_calculated_total']
+                : 0;
 
-                return sprintf( '%s <small class="vsbbm-price-breakdown">(%s × %d)</small>', $total_price_html, $unit_price_html, $count );
+            // Fallback to old calculation if total not set
+            if ( $total_price <= 0 ) {
+                $original_price = isset( $cart_item['vsbbm_original_price'] ) ? (float) $cart_item['vsbbm_original_price'] : 0;
+                $total_price = $original_price * $count;
+            }
+
+            if ( $total_price > 0 ) {
+                $total_price_html = wc_price( $total_price );
+
+                // Show average per-passenger price for clarity
+                $avg_price = $count > 0 ? ( $total_price / $count ) : 0;
+                $avg_price_html = wc_price( $avg_price );
+
+                if ( abs( $avg_price - ( $total_price / $count ) ) < 0.01 ) {
+                    return sprintf( '%s <small class="vsbbm-price-breakdown">(%s × %d)</small>', $total_price_html, $avg_price_html, $count );
+                }
+                return $total_price_html;
             }
         }
         return $price;
@@ -330,13 +417,24 @@ class VSBBM_Booking_Handler {
 
     /**
      * Display correct subtotal in cart table.
+     *
+     * P0-6: Uses vsbbm_calculated_total (sum of individual seat prices).
      */
     public static function display_cart_item_subtotal( $subtotal, $cart_item, $cart_item_key ) {
         if ( isset( $cart_item['vsbbm_passengers'] ) ) {
-            $count          = count( $cart_item['vsbbm_passengers'] );
-            $original_price = isset( $cart_item['vsbbm_original_price'] ) ? $cart_item['vsbbm_original_price'] : 0;
-            
-            return wc_price( $original_price * $count );
+            // P0-6: Use calculated total
+            $total_price = isset( $cart_item['vsbbm_calculated_total'] )
+                ? (float) $cart_item['vsbbm_calculated_total']
+                : 0;
+
+            // Fallback to old calculation
+            if ( $total_price <= 0 ) {
+                $count = count( $cart_item['vsbbm_passengers'] );
+                $original_price = isset( $cart_item['vsbbm_original_price'] ) ? (float) $cart_item['vsbbm_original_price'] : 0;
+                $total_price = $original_price * $count;
+            }
+
+            return wc_price( $total_price );
         }
         return $subtotal;
     }

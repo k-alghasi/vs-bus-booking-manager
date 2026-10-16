@@ -103,11 +103,15 @@ class VSBBM_REST_API {
             'permission_callback' => array( $this, 'check_authentication' ),
         ) );
 
+        // P0-2: Route disabled — callback 'get_booking_details' was not implemented.
+        // Will be re-enabled in Phase 2 when REST API moves to Pro addon.
+        /*
         register_rest_route( $this->namespace, '/user/bookings/(?P<id>\d+)', array(
             'methods'             => 'GET',
             'callback'            => array( $this, 'get_booking_details' ),
             'permission_callback' => array( $this, 'check_authentication' ),
         ) );
+        */
 
         // Tickets (Validation)
         register_rest_route( $this->namespace, '/tickets/(?P<code>[a-zA-Z0-9-]+)', array(
@@ -116,12 +120,19 @@ class VSBBM_REST_API {
             'permission_callback' => '__return_true', // For QR Scanners
         ) );
 
+        // P0-2: Route disabled — callback 'use_ticket' was not implemented.
+        // Will be re-enabled in Phase 2 when REST API moves to Pro addon.
+        /*
         register_rest_route( $this->namespace, '/tickets/(?P<code>[a-zA-Z0-9-]+)/use', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'use_ticket' ),
             'permission_callback' => array( $this, 'check_authentication' ), // Only authorized staff
         ) );
+        */
 
+        // P0-2: Routes disabled — callbacks 'get_user_profile' and 'update_user_profile'
+        // were not implemented. Will be re-enabled in Phase 2 when REST API moves to Pro addon.
+        /*
         // Profile
         register_rest_route( $this->namespace, '/user/profile', array(
             'methods'             => 'GET',
@@ -134,6 +145,7 @@ class VSBBM_REST_API {
             'callback'            => array( $this, 'update_user_profile' ),
             'permission_callback' => array( $this, 'check_authentication' ),
         ) );
+        */
     }
 
     /**
@@ -358,6 +370,9 @@ class VSBBM_REST_API {
 
     /**
      * Get Product Seats (Critical: Requires Timestamp).
+     *
+     * P0-1.4: Uses Reservation_Service::get_seat_availability for consistent
+     * seat status reporting across AJAX and REST API.
      */
     public function get_product_seats( $request ) {
         $product_id = absint( $request->get_param( 'id' ) );
@@ -367,81 +382,86 @@ class VSBBM_REST_API {
             return new WP_Error( 'rest_invalid_param', __( 'Timestamp is required.', 'vs-bus-booking-manager' ), array( 'status' => 400 ) );
         }
 
-        $all_seats      = VSBBM_Seat_Manager::get_seat_numbers( $product_id );
-        // IMPORTANT: Use the time-aware method
-        $reserved_seats = VSBBM_Seat_Reservations::get_reserved_seats_by_product_and_time( $product_id, $timestamp );
-
-        $seats = array();
-        foreach ( $all_seats as $seat_num => $seat_data ) {
-            // Check if seat number is in reserved keys
-            $status = array_key_exists( $seat_num, $reserved_seats ) ? 'reserved' : 'available';
-            
-            $seats[] = array(
-                'number' => $seat_num,
-                'label'  => $seat_data['label'],
-                'status' => $status,
-                'price'  => (float) $seat_data['price'] > 0 ? $seat_data['price'] : 0,
-            );
-        }
+        // P0-1.4: Delegate to Reservation_Service for consistent seat availability
+        $service = VSBBM_Reservation_Service::get_instance();
+        $seats   = $service->get_seat_availability( $product_id, $timestamp );
 
         return array( 'success' => true, 'seats' => $seats );
     }
 
     /**
-     * Create Reservation.
+     * Create Reservation (REST API endpoint).
+     *
+     * P0-1.4: Refactored to use VSBBM_Reservation_Service as the single
+     * source of truth for booking logic. Now shares the same validation,
+     * blacklist, and rollback behavior as the AJAX flow.
+     *
+     * @param WP_REST_Request $request Request object.
+     * @return array|WP_Error Response or error.
      */
     public function create_reservation( $request ) {
         $params  = $request->get_json_params();
         $user_id = $request->get_param( 'user_id' );
 
-        // Validate required fields
-        if ( empty( $params['product_id'] ) || empty( $params['seats'] ) || empty( $params['timestamp'] ) ) {
-            return new WP_Error( 'rest_invalid_param', __( 'Product ID, Seats, and Timestamp are required.', 'vs-bus-booking-manager' ), array( 'status' => 400 ) );
-        }
+        // 1. Delegate to Reservation_Service (single source of truth)
+        $service = VSBBM_Reservation_Service::get_instance();
+        $result  = $service->create_booking( array(
+            'product_id'          => isset( $params['product_id'] ) ? absint( $params['product_id'] ) : 0,
+            'departure_timestamp' => isset( $params['timestamp'] ) ? absint( $params['timestamp'] ) : 0,
+            'seats'               => isset( $params['seats'] ) ? (array) $params['seats'] : array(),
+            'passengers'          => isset( $params['passengers'] ) ? $params['passengers'] : array(),
+            'user_id'             => $user_id,
+            'source'              => 'rest_api',
+        ) );
 
-        $product_id = absint( $params['product_id'] );
-        $timestamp  = absint( $params['timestamp'] );
-        $seats      = (array) $params['seats'];
-        $passengers = isset( $params['passengers'] ) ? $params['passengers'] : array();
-
-        // 1. Reserve Seats in DB
-        $reservation_keys = array();
-        foreach ( $seats as $seat_number ) {
-            $seat_number = sanitize_text_field( $seat_number );
-            $res_id = VSBBM_Seat_Reservations::reserve_seat( $product_id, $seat_number, $timestamp, null, $user_id );
-            
-            if ( is_wp_error( $res_id ) ) {
-                VSBBM_Seat_Reservations::cancel_reservations_by_keys( $reservation_keys );
-                return new WP_Error( 'rest_reservation_failed', $res_id->get_error_message(), array( 'status' => 400 ) );
-            }
-            $reservation_keys[] = $res_id;
+        if ( is_wp_error( $result ) ) {
+            return new WP_Error(
+                'rest_reservation_failed',
+                $result->get_error_message(),
+                array( 'status' => 400 )
+            );
         }
 
         // 2. Create WC Order
-        $order = wc_create_order( array( 'customer_id' => $user_id ) );
-        $product = wc_get_product( $product_id );
-        
-        // Add item with metadata
-        $item_id = $order->add_product( $product, count( $seats ) );
+        $order   = wc_create_order( array( 'customer_id' => $result['user_id'] ) );
+        $product = wc_get_product( $result['product_id'] );
+
+        if ( ! $product ) {
+            // Rollback: cancel reservations
+            $service->cancel_booking( $result['reservation_keys'] );
+            return new WP_Error(
+                'rest_product_not_found',
+                __( 'Product not found.', 'vs-bus-booking-manager' ),
+                array( 'status' => 404 )
+            );
+        }
+
+        // 3. Add item with metadata
+        $item_id = $order->add_product( $product, count( $result['seats'] ) );
         $item    = $order->get_item( $item_id );
-        
+
         // Add meta for Ticket Manager
-        $item->add_meta_data( '_vsbbm_departure_timestamp', $timestamp );
-        $item->add_meta_data( 'vsbbm_passengers', $passengers ); // Pass full passenger data
+        $item->add_meta_data( '_vsbbm_departure_timestamp', $result['departure_timestamp'] );
+        $item->add_meta_data( '_vsbbm_reservation_keys', $result['reservation_keys'] );
+        $item->add_meta_data( 'vsbbm_passengers', $result['passengers'] );
         $item->save();
 
         $order->calculate_totals();
         $order->save();
 
-        // 3. Link Reservations to Order
-        VSBBM_Seat_Reservations::update_reservation_order_id( $order->get_id(), $passengers );
+        // 4. Link Reservations to Order (precise, by reservation IDs)
+        VSBBM_Seat_Reservations::link_reservations_by_keys( $result['reservation_keys'], $order->get_id() );
+
+        // 5. Fire action for extensions
+        do_action( 'vsbbm_rest_booking_created', $result['reservation_keys'], $order->get_id(), $result );
 
         return array(
-            'success'      => true,
-            'order_id'     => $order->get_id(),
-            'order_key'    => $order->get_order_key(),
-            'total_amount' => $order->get_total(),
-            'payment_url'  => $order->get_checkout_payment_url(),
+            'success'          => true,
+            'order_id'         => $order->get_id(),
+            'order_key'        => $order->get_order_key(),
+            'total_amount'     => $order->get_total(),
+            'payment_url'      => $order->get_checkout_payment_url(),
+            'reservation_keys' => $result['reservation_keys'],
         );
     }
 
