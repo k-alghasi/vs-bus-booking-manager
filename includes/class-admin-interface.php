@@ -51,8 +51,8 @@ class VSBBM_Admin_Interface {
     public function add_admin_menus() {
         // Main Menu
         add_menu_page(
-            __( 'Bus Booking', 'vs-bus-booking-manager' ),
-            __( 'Bus Booking', 'vs-bus-booking-manager' ),
+            'رزرو بلیط اتوبوس',
+            'رزرو بلیط اتوبوس',
             'manage_options',
             'vsbbm-dashboard',
             array( $this, 'render_dashboard' ),
@@ -60,29 +60,28 @@ class VSBBM_Admin_Interface {
             30
         );
 
-        // 1. Dashboard
-        add_submenu_page( 'vsbbm-dashboard', __( 'Dashboard', 'vs-bus-booking-manager' ), __( 'Dashboard', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-dashboard', array( $this, 'render_dashboard' ) );
+        // 1. داشبورد
+        add_submenu_page( 'vsbbm-dashboard', 'داشبورد', 'داشبورد', 'manage_options', 'vsbbm-dashboard', array( $this, 'render_dashboard' ) );
 
-        // 2. Operations (Bookings & Reservations)
-        add_submenu_page( 'vsbbm-dashboard', __( 'All Bookings', 'vs-bus-booking-manager' ), __( 'All Bookings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-bookings', array( $this, 'render_bookings_page' ) );
-        add_submenu_page( 'vsbbm-dashboard', __( 'Seat Reservations', 'vs-bus-booking-manager' ), __( 'Reservations', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-reservations', array( $this, 'render_reservations_page' ) );
+        // 2. عملیات (رزروها)
+        add_submenu_page( 'vsbbm-dashboard', 'همه رزروها', 'همه رزروها', 'manage_options', 'vsbbm-bookings', array( $this, 'render_bookings_page' ) );
+        add_submenu_page( 'vsbbm-dashboard', 'صندلی‌های رزرو شده', 'رزروهای صندلی', 'manage_options', 'vsbbm-reservations', array( $this, 'render_reservations_page' ) );
 
-        // 3. Management (Blacklist)
-        add_submenu_page( 'vsbbm-dashboard', __( 'Blacklist', 'vs-bus-booking-manager' ), __( 'Blacklist', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-blacklist', array( $this, 'render_blacklist_page' ) );
+        // 3. مدیریت (لیست سیاه)
+        add_submenu_page( 'vsbbm-dashboard', 'لیست سیاه', 'لیست سیاه', 'manage_options', 'vsbbm-blacklist', array( $this, 'render_blacklist_page' ) );
 
-        // 4. Settings Group (Free)
-        add_submenu_page( 'vsbbm-dashboard', __( 'General Settings', 'vs-bus-booking-manager' ), __( 'Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-settings', array( $this, 'render_settings_page' ) );
-        add_submenu_page( 'vsbbm-dashboard', __( 'Email Settings', 'vs-bus-booking-manager' ), __( 'Email Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-email-settings', array( $this, 'render_email_settings_page' ) );
-        add_submenu_page( 'vsbbm-dashboard', __( 'License', 'vs-bus-booking-manager' ), __( 'License', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-license', array( $this, 'render_license_page' ) );
+        // 4. تنظیمات
+        add_submenu_page( 'vsbbm-dashboard', 'تنظیمات عمومی', 'تنظیمات', 'manage_options', 'vsbbm-settings', array( $this, 'render_settings_page' ) );
+        add_submenu_page( 'vsbbm-dashboard', 'تنظیمات ایمیل', 'تنظیمات ایمیل', 'manage_options', 'vsbbm-email-settings', array( $this, 'render_email_settings_page' ) );
+        add_submenu_page( 'vsbbm-dashboard', 'لایسنس', 'لایسنس', 'manage_options', 'vsbbm-license', array( $this, 'render_license_page' ) );
 
-        // 5. Advanced / Tools
-        add_submenu_page( 'vsbbm-dashboard', __( 'Cache & Optimization', 'vs-bus-booking-manager' ), __( 'Cache', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-cache', array( $this, 'render_cache_page' ) );
+        // 5. ابزارها
+        add_submenu_page( 'vsbbm-dashboard', 'کش و بهینه‌سازی', 'کش', 'manage_options', 'vsbbm-cache', array( $this, 'render_cache_page' ) );
 
         // P2-4: Pro menus — فقط اگر لایسنس فعال باشد
-        // Scanner, SMS Settings, API Settings توسط افزونه Pro اضافه می‌شوند
         if ( VSBBM_Settings::get_instance()->is_pro_active() ) {
-            add_submenu_page( 'vsbbm-dashboard', __( 'SMS Settings', 'vs-bus-booking-manager' ), __( 'SMS Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-sms-settings', array( $this, 'render_sms_settings_page' ) );
-            add_submenu_page( 'vsbbm-dashboard', __( 'API Settings', 'vs-bus-booking-manager' ), __( 'API Settings', 'vs-bus-booking-manager' ), 'manage_options', 'vsbbm-api-settings', array( $this, 'render_api_settings_page' ) );
+            add_submenu_page( 'vsbbm-dashboard', 'تنظیمات پیامک', 'تنظیمات پیامک', 'manage_options', 'vsbbm-sms-settings', array( $this, 'render_sms_settings_page' ) );
+            add_submenu_page( 'vsbbm-dashboard', 'تنظیمات API', 'تنظیمات API', 'manage_options', 'vsbbm-api-settings', array( $this, 'render_api_settings_page' ) );
         }
     }
 
@@ -135,6 +134,9 @@ class VSBBM_Admin_Interface {
 
     /**
      * دریافت آمار سریع (کارت‌های بالای صفحه)
+     *
+     * P-fix: استفاده از wc_get_orders به‌جای کوئری مستقیم SQL
+     * برای سازگاری با HPOS (WooCommerce 8+)
      */
     private function get_quick_stats() {
         global $wpdb;
@@ -143,23 +145,23 @@ class VSBBM_Admin_Interface {
         // 1. تعداد کل بلیط‌ها
         $total_tickets = $wpdb->get_var( "SELECT COUNT(*) FROM $tickets_table" );
 
-        // 2. درآمد کل (از سفارشات ووکامرس مربوط به بلیط‌ها)
-        // P0-8: فیلتر EXISTS حالا چک می‌کنه که سفارش حداقل یک آیتم با
-        // متای _vsbbm_passengers داشته باشه (یعنی سفارش اتوبوسی هست).
-        $total_revenue = $wpdb->get_var( "
-            SELECT SUM(pm.meta_value) 
-            FROM {$wpdb->postmeta} pm
-            JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-            WHERE p.post_type = 'shop_order' 
-            AND p.post_status IN ('wc-completed', 'wc-processing', 'wc-on-hold')
-            AND pm.meta_key = '_order_total'
-            AND EXISTS (
-                SELECT 1 FROM {$wpdb->prefix}woocommerce_order_items oi
-                JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oim.order_item_id = oi.order_item_id
-                WHERE oi.order_id = p.ID
-                AND oim.meta_key = '_vsbbm_passengers'
-            )
-        " );
+        // 2. درآمد کل — استفاده از wc_get_orders برای سازگاری با HPOS
+        $orders = wc_get_orders( array(
+            'status' => array( 'completed', 'processing', 'on-hold' ),
+            'limit'  => -1,
+            'return' => 'objects',
+        ) );
+
+        $total_revenue = 0;
+        foreach ( $orders as $order ) {
+            // بررسی اینکه سفارش اتوبوسی هست (دارای _vsbbm_passengers)
+            foreach ( $order->get_items() as $item ) {
+                if ( $item->get_meta( '_vsbbm_passengers' ) ) {
+                    $total_revenue += (float) $order->get_total();
+                    break; // یک آیتم کافیه
+                }
+            }
+        }
 
         // 3. تعداد سفرهای فعال (محصولات اتوبوسی)
         $active_trips = count( get_posts( array(
@@ -171,13 +173,16 @@ class VSBBM_Admin_Interface {
 
         return array(
             'tickets' => $total_tickets ? $total_tickets : 0,
-            'revenue' => $total_revenue ? $total_revenue : 0,
+            'revenue' => $total_revenue,
             'trips'   => $active_trips
         );
     }
 
     /**
      * دریافت داده‌های نمودار برای JS
+     *
+     * P-fix: استفاده از wc_get_orders به‌جای کوئری مستقیم SQL
+     * برای سازگاری با HPOS (WooCommerce 8+)
      */
     private function get_dashboard_data() {
         global $wpdb;
@@ -190,7 +195,7 @@ class VSBBM_Admin_Interface {
             $status_data[ $row->status ] = $row->count;
         }
 
-        // 2. نمودار خطی فروش ۷ روز گذشته
+        // 2. نمودار خطی فروش ۷ روز گذشته — استفاده از wc_get_orders
         $sales_data = array();
         $labels = array();
         
@@ -198,29 +203,30 @@ class VSBBM_Admin_Interface {
             $date = date( 'Y-m-d', strtotime( "-$i days" ) );
             $labels[] = date_i18n( 'l', strtotime( $date ) );
             
-            // P0-8: فیلتر EXISTS برای سفارشات اتوبوسی فقط
-            $daily_sales = $wpdb->get_var( $wpdb->prepare( "
-                SELECT SUM(pm.meta_value) 
-                FROM {$wpdb->postmeta} pm
-                JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-                WHERE p.post_type = 'shop_order' 
-                AND p.post_status IN ('wc-completed', 'wc-processing', 'wc-on-hold')
-                AND pm.meta_key = '_order_total'
-                AND DATE(p.post_date) = %s
-                AND EXISTS (
-                    SELECT 1 FROM {$wpdb->prefix}woocommerce_order_items oi
-                    JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oim.order_item_id = oi.order_item_id
-                    WHERE oi.order_id = p.ID
-                    AND oim.meta_key = '_vsbbm_passengers'
-                )
-            ", $date ) );
+            // گرفتن سفارشات آن روز
+            $day_orders = wc_get_orders( array(
+                'status' => array( 'completed', 'processing', 'on-hold' ),
+                'date_created' => $date . '...' . $date . ' 23:59:59',
+                'limit' => -1,
+                'return' => 'objects',
+            ) );
+
+            $daily_total = 0;
+            foreach ( $day_orders as $order ) {
+                foreach ( $order->get_items() as $item ) {
+                    if ( $item->get_meta( '_vsbbm_passengers' ) ) {
+                        $daily_total += (float) $order->get_total();
+                        break;
+                    }
+                }
+            }
             
-            $sales_data[] = $daily_sales ? $daily_sales : 0;
+            $sales_data[] = $daily_total;
         }
 
         return array(
             'status' => array(
-                'labels' => array( __( 'Active', 'vs-bus-booking-manager' ), __( 'Used', 'vs-bus-booking-manager' ), __( 'Expired', 'vs-bus-booking-manager' ) ),
+                'labels' => array( 'فعال', 'استفاده شده', 'منقضی' ),
                 'data'   => array( $status_data['active'], $status_data['used'], $status_data['expired'] )
             ),
             'sales' => array(
@@ -249,16 +255,23 @@ class VSBBM_Admin_Interface {
                     </div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-icon">🎫</div>
+                    <div class="stat-icon">💰</div>
                     <div class="stat-content">
-                        <h3><?php esc_html_e( 'Tickets Sold', 'vs-bus-booking-manager' ); ?></h3>
+                        <h3>درآمد کل</h3>
+                        <div class="stat-number"><?php echo wc_price( $stats['revenue'] ); ?></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-ickon">🎫</div>
+                    <div class="stat-content">
+                        <h3>بلیط‌های فروخته شده</h3>
                         <div class="stat-number"><?php echo number_format( $stats['tickets'] ); ?></div>
                     </div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">🚌</div>
                     <div class="stat-content">
-                        <h3><?php esc_html_e( 'Active Trips', 'vs-bus-booking-manager' ); ?></h3>
+                        <h3>سفرهای فعال</h3>
                         <div class="stat-number"><?php echo number_format( $stats['trips'] ); ?></div>
                     </div>
                 </div>
@@ -267,11 +280,11 @@ class VSBBM_Admin_Interface {
             <!-- نمودارها -->
             <div class="vsbbm-charts">
                 <div class="chart-container">
-                    <h3><?php esc_html_e( 'Sales (Last 7 Days)', 'vs-bus-booking-manager' ); ?></h3>
+                    <h3>فروش (۷ روز گذشته)</h3>
                     <canvas id="vsbbm-revenue-chart"></canvas>
                 </div>
                 <div class="chart-container">
-                    <h3><?php esc_html_e( 'Ticket Status', 'vs-bus-booking-manager' ); ?></h3>
+                    <h3>وضعیت بلیط‌ها</h3>
                     <canvas id="vsbbm-status-chart" style="max-height: 300px;"></canvas>
                 </div>
             </div>
